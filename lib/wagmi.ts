@@ -9,8 +9,8 @@ export const config = createConfig({
     coinbaseWallet(),
   ],
   transports: {
-    [sepolia.id]: http("https://sepolia.infura.io/v3/42858dc44d7f40548ac58dc2ce669dd6"), // Your Sepolia Infura key
-    [mainnet.id]: http("https://mainnet.infura.io/v3/42858dc44d7f40548ac58dc2ce669dd6"), // Add Mainnet Infura endpoint
+    [sepolia.id]: http(`https://sepolia.infura.io/v3/${process.env.INFURA}`), // Your Sepolia Infura key
+    [mainnet.id]: http(`https://mainnet.infura.io/v3/${process.env.INFURAMAIN}`), // Add Mainnet Infura endpoint
   },
 });
 
