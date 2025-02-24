@@ -73,6 +73,8 @@ interface MarketCapPieChartProps { totalMinted: string }
 interface PhaseParticipantsPieChartProps { phaseData: PieData[]; totalTokens: string }
 interface GlobalPieChartProps { totalData: PieData[]; totalMinted: string }
 
+// Use Recharts' PieSectorDataItem type or unknown for flexibility, since PieActiveShapeProps might be too specific
+// Assuming Recharts v2.x, PieSectorDataItem is the expected type for activeShape props
 interface PieActiveShapeProps {
   cx: number;
   cy: number;
@@ -219,9 +221,11 @@ const abbreviateNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-const renderActiveShape = (props: PieActiveShapeProps & { totalTokens?: string }) => {
+const renderActiveShape = (props: unknown) => {
+  // Cast props to PieActiveShapeProps & { totalTokens?: string } for type safety
+  const typedProps = props as PieActiveShapeProps & { totalTokens?: string };
   const RADIAN = Math.PI / 180;
-  const { cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value, totalTokens } = props;
+  const { cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value, totalTokens } = typedProps;
   const sin = Math.sin(-RADIAN * midAngle);
   const cos = Math.cos(-RADIAN * midAngle);
   const sx = cx + (outerRadius + 10) * cos;
@@ -328,12 +332,12 @@ const GlobalPieChart = ({ totalData, totalMinted }: GlobalPieChartProps) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Global Contributions</h3>
+      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Global Contribs</h3>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
           <Pie
             activeIndex={activeIndex}
-            activeShape={(props) => renderActiveShape({ ...props, totalTokens: totalMinted })}
+            activeShape={(props: unknown) => renderActiveShape(props)}
             data={aggregatedData}
             cx="50%"
             cy="50%"
@@ -374,7 +378,7 @@ const PhaseParticipantsPieChart = ({ phaseData, totalTokens }: PhaseParticipants
         <PieChart>
           <Pie
             activeIndex={activeIndex}
-            activeShape={(props) => renderActiveShape({ ...props, totalTokens })}
+            activeShape={(props: unknown) => renderActiveShape(props)}
             data={aggregatedData}
             cx="50%"
             cy="50%"
@@ -409,12 +413,12 @@ const ParticipationPieChart = ({ data }: { data: PieData[] }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Your Contributions</h3>
+      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Your Contribs</h3>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
           <Pie
             activeIndex={activeIndex}
-            activeShape={renderActiveShape}
+            activeShape={(props: unknown) => renderActiveShape(props)}
             data={aggregatedData}
             cx="50%"
             cy="50%"
@@ -438,7 +442,7 @@ const MarketCapPieChart = ({ totalMinted }: MarketCapPieChartProps) => {
   const data = useMemo(() => [
     { name: "Minted", value: minted },
     { name: "Unminted", value: unminted },
-  ], [minted]);
+  ], [minted, unminted]); // Ensure unminted is included in dependencies
   const COLORS = ["#4f46e5", "#d1d5db"];
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -454,7 +458,7 @@ const MarketCapPieChart = ({ totalMinted }: MarketCapPieChartProps) => {
         <PieChart>
           <Pie
             activeIndex={activeIndex}
-            activeShape={(props) => renderActiveShape({ ...props, totalTokens: TOTAL_SUPPLY.toString() })}
+            activeShape={(props: unknown) => renderActiveShape(props)}
             data={data}
             cx="50%"
             cy="50%"
@@ -1059,9 +1063,11 @@ export default function Home() {
       await tx.wait();
       alert(`Minted tokens from Phase ${phase}!`);
       await fetchContractData(contract, provider!, account);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Minting failed:", error);
-      alert(`Minting failed: ${error.message || "Unknown error"}`);
+      // Type guard to check if error is an Error object
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      alert(`Minting failed: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -1091,9 +1097,11 @@ export default function Home() {
       }
       alert(`Minted tokens for all eligible phases: ${mintablePhases.join(", ")}`);
       await fetchContractData(contract, provider!, account);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Multi-minting failed:", error);
-      alert(`Multi-minting failed: ${error.message || "Unknown error"}`);
+      // Type guard to check if error is an Error object
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      alert(`Multi-minting failed: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
