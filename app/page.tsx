@@ -93,7 +93,6 @@ const TOTAL_BLOCKS = 1337;
 const TOTAL_SUPPLY = 1000000;
 const DYNAMIC_MINT_AMOUNT = TOTAL_SUPPLY * 0.75;
 const MAX_PIE_SLICES = 5;
-const MAX_MINT_BATCH_SIZE = 1; // Reduced to 1 to match single mint cost
 const BASE_GAS_LIMIT = 100000; // Base gas limit per phase, matching single mint (~0.0048 SepoliaETH)
 
 const PHASES = [
