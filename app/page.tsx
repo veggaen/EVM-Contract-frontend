@@ -65,12 +65,13 @@ interface PhaseProgressProps {
   userCurrentPhaseContributions: string;
   participantsCount: number;
   currentPhaseContributions: string;
+  userParticipated: boolean; // Added to pass userParticipated
 }
 interface ParticipateCardProps { ethAmount: string; setEthAmount: React.Dispatch<React.SetStateAction<string>>; errorMessage: string | null; sendEth: () => void }
 interface MintCardProps { mintablePhases: number[]; mintTokens: (phase: number) => void; multiMint: () => void; isLoading: boolean }
 interface ParticipationCardProps { userContributions: string; participantsCount: number; tokensMintedThisPhase: string; phaseContributions: string[] }
 interface MarketCapPieChartProps { totalMinted: string }
-interface PhaseParticipantsPieChartProps { phaseData: PieData[]; totalTokens: string }
+interface PhaseParticipantsPieChartProps { phaseData: PieData[]; totalTokens: string; currentPhase: number }
 interface GlobalPieChartProps { totalData: PieData[]; totalMinted: string }
 
 // Use Recharts' PieSectorDataItem type or unknown for flexibility
@@ -361,19 +362,19 @@ const GlobalPieChart = ({ totalData, totalMinted }: GlobalPieChartProps) => {
   );
 };
 
-const PhaseParticipantsPieChart = ({ phaseData, totalTokens }: PhaseParticipantsPieChartProps) => {
+const PhaseParticipantsPieChart = ({ phaseData, totalTokens, currentPhase }: PhaseParticipantsPieChartProps) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const COLORS = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#d1d5db"];
   const aggregatedData = useMemo(() => aggregatePieData(phaseData, MAX_PIE_SLICES), [phaseData]);
 
   return (
     <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
+      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6 h-full"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Phase Participants</h3>
+      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Phase {currentPhase} Participants</h3>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
           <Pie
@@ -700,12 +701,11 @@ const PhaseProgress = ({
   userCurrentPhaseContributions,
   participantsCount,
   currentPhaseContributions,
+  userParticipated, // Added to use the prop instead of calculating internally
 }: PhaseProgressProps) => {
-  const userParticipated = parseFloat(userCurrentPhaseContributions) > 0;
-
   return (
     <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
+      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.2 }}
@@ -859,7 +859,7 @@ export default function Home() {
 
   const launchPhaseProgress = blockNumber && launchBlock > 0 ? Math.min(((blockNumber - launchBlock) / TOTAL_BLOCKS) * 100, 100) : 0;
   const blocksSinceLaunch = blockNumber - launchBlock;
-  const userParticipated = parseFloat(userCurrentPhaseContributions) > 0;
+  const userParticipated = parseFloat(userCurrentPhaseContributions) > 0; // Keep this to avoid unused variable error
 
   useEffect(() => {
     if (chainId && (chainId === sepolia.id || chainId === mainnet.id)) setActiveNetwork(chainId as ChainId);
@@ -1172,18 +1172,24 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <PhaseProgress
-                progress={launchPhaseProgress}
-                blocksSinceLaunch={blocksSinceLaunch}
-                estimatedReward={estimatedReward}
-                totalTokensThisPhase={totalTokensThisPhase}
-                remainingBlocks={nextPhaseBlocks}
-                phaseEndBlock={phaseEndBlock}
-                currentPhase={currentPhase}
-                userCurrentPhaseContributions={userCurrentPhaseContributions}
-                participantsCount={participantsCount}
-                currentPhaseContributions={currentPhaseContributions}
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <PhaseProgress
+                  progress={launchPhaseProgress}
+                  blocksSinceLaunch={blocksSinceLaunch}
+                  estimatedReward={estimatedReward}
+                  totalTokensThisPhase={totalTokensThisPhase}
+                  remainingBlocks={nextPhaseBlocks}
+                  phaseEndBlock={phaseEndBlock}
+                  currentPhase={currentPhase}
+                  userCurrentPhaseContributions={userCurrentPhaseContributions}
+                  participantsCount={participantsCount}
+                  currentPhaseContributions={currentPhaseContributions}
+                  userParticipated={userParticipated} // Pass userParticipated as a prop
+                />
+                {participantsCount > 0 && (
+                  <PhaseParticipantsPieChart phaseData={phaseParticipants} totalTokens={totalTokensThisPhase} currentPhase={currentPhase} />
+                )}
+              </div>
             </motion.div>
 
             <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-6 mb-6 sm:mb-8">
@@ -1221,7 +1227,6 @@ export default function Home() {
                   />
                   <GlobalPieChart totalData={totalParticipantsData} totalMinted={totalMinted} />
                   <MarketCapPieChart totalMinted={totalMinted} />
-                  <PhaseParticipantsPieChart phaseData={phaseParticipants} totalTokens={totalTokensThisPhase} />
                 </div>
               </div>
             </div>
