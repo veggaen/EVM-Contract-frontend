@@ -73,8 +73,7 @@ interface MarketCapPieChartProps { totalMinted: string }
 interface PhaseParticipantsPieChartProps { phaseData: PieData[]; totalTokens: string }
 interface GlobalPieChartProps { totalData: PieData[]; totalMinted: string }
 
-// Use Recharts' PieSectorDataItem type or unknown for flexibility, since PieActiveShapeProps might be too specific
-// Assuming Recharts v2.x, PieSectorDataItem is the expected type for activeShape props
+// Use Recharts' PieSectorDataItem type or unknown for flexibility
 interface PieActiveShapeProps {
   cx: number;
   cy: number;
@@ -247,6 +246,8 @@ const renderActiveShape = (props: unknown) => {
 
   // Show more decimals for small values (< 1) in hover text, otherwise use two decimals
   const displayValue = value < 1 ? value.toFixed(5) : value.toFixed(2);
+  // Format tokens to show full number with commas for large values
+  const displayTokens = payload.tokens ? payload.tokens.toLocaleString() : "0";
 
   return (
     <g style={{ zIndex: 1000 }}>
@@ -287,7 +288,7 @@ const renderActiveShape = (props: unknown) => {
         fill="#fff"
         className="text-xs sm:text-xs md:text-sm max-w-[100px] truncate sm:max-w-[150px]"
       >
-        {abbreviateNumber(Math.round(tokenAmount))} MMM
+        {displayTokens} MMM
       </text>
       {totalTokens && (
         <text
@@ -314,6 +315,7 @@ const aggregatePieData = (data: PieData[], maxSlices: number): PieData[] => {
       name: "Others",
       value: acc.value + curr.value,
       tokens: (acc.tokens || 0) + (curr.tokens || 0),
+      address: undefined, // Ensure address is undefined for "Others"
     }),
     { name: "Others", value: 0, tokens: 0 } as PieData
   );
@@ -951,7 +953,7 @@ export default function Home() {
             const tokenShare = totalPhaseContrib > 0 && !hasMinted ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount) : 0;
             const existing = allContributors.get(addr)!;
             existing.value += userShare;
-            existing.tokens! += tokenShare;
+            existing.tokens = (existing.tokens || 0) + tokenShare; // Accumulate tokens across phases
           }
         }
 
