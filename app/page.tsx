@@ -234,8 +234,6 @@ const renderActiveShape = (props: unknown) => {
   const ex = cx + (outerRadius + 20) * cos; // Reduced offset for mobile to bring text closer
   const ey = cy + (outerRadius + 20) * sin; // Reduced offset for mobile to bring text closer
   const textAnchor = cos >= 0 ? "start" : "end";
-  const totalTokenValue = totalTokens ? parseFloat(totalTokens) : 0;
-  const tokenAmount = totalTokenValue * percent;
 
   const copyAddress = () => {
     if (payload.address) {
