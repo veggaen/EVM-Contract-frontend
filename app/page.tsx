@@ -32,7 +32,7 @@ const globalStyles = `
     background: #4f46e5;
     border-radius: 4px;
   }
-  ::-webkit-scrollbar-thumb:hover {
+  ::-webkit-scrollba r-thumb:hover {
     background: #6366f1;
   }
 `;
@@ -167,7 +167,7 @@ const ABI = [
   },
   {
     constant: false,
-    inputs: [{ name: "phasesToMint", type: "uint256[]" }],
+    inputs: [],
     name: "mintMultipleUserShares",
     outputs: [],
     stateMutability: "nonpayable",

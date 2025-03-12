@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { FaEthereum } from "react-icons/fa";
 import { FiLogOut, FiCopy, FiCheck } from "react-icons/fi";
 import { ethers } from "ethers";
-import { sepolia, mainnet } from "wagmi/chains";
+import { sepolia, holesky, mainnet } from "wagmi/chains";
 import { motion } from "framer-motion";
 
 interface NavbarProps {
@@ -57,7 +57,8 @@ export default function Navbar({
     setActiveNetwork(newNetworkId);
   };
 
-  const networkName = activeNetwork === sepolia.id ? "Sepolia" : "Mainnet";
+  const networkName =
+    activeNetwork === sepolia.id ? "Sepolia" : activeNetwork === holesky.id ? "Holesky" : "Mainnet";
 
   return (
     <motion.nav
@@ -75,6 +76,7 @@ export default function Navbar({
           className="ml-2 p-1 bg-gray-700 border border-gray-600 rounded-md text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-md"
         >
           <option value={sepolia.id}>Sepolia</option>
+          <option value={holesky.id}>Holesky</option>
           <option value={mainnet.id}>Mainnet</option>
         </select>
       </div>
