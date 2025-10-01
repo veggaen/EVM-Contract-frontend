@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { ethers } from "ethers";
-import { FaEthereum } from "react-icons/fa";
+import { FaEthereum, FaChartLine, FaCoins, FaUsers, FaChevronDown, FaChevronUp } from "react-icons/fa";
 import Navbar from "@/components/Navbar";
 import {
   useAccount,
@@ -16,66 +16,14 @@ import {
 import { sepolia, mainnet } from "wagmi/chains";
 import { parseEther } from "viem";
 import { CONTRACT_ADDRESSES } from "../lib/wagmi";
-import { PieChart, Pie, Sector, ResponsiveContainer, LineChart, Line, Tooltip, Legend, Cell, XAxis } from "recharts";
+import { PieChart, Pie, Sector, ResponsiveContainer, Cell, Legend, LineChart, Line, XAxis, Tooltip } from "recharts";
 import { motion } from "framer-motion";
 
-// Global Scrollbar Styles
-const globalStyles = `
-  ::-webkit-scrollbar {
-    width: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: #1f2937;
-    border-radius: 4px;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #4f46e5;
-    border-radius: 4px;
-  }
-  ::-webkit-scrollba r-thumb:hover {
-    background: #6366f1;
-  }
-`;
-
 // Types
-type ChainId = 1 | 11155111;
-
-interface ToggleDecimalsProps { value: string }
-interface PieData { name: string; value: number; address?: string; tokens?: number }
+type ChainId = 1 | 11155111 | 369;
+interface PieData { name: string; value: number; address?: string; tokens?: number; isPending?: boolean; phase?: number; txHash?: string }
 interface HistoricalData { phase: string; contributions: number; minted: number }
-interface StatsProps {
-  globalStats: { totalMinted: string; totalContributions: string; totalParticipants: number };
-  phaseStats: {
-    currentPhase: number;
-    currentPhaseContributions: string;
-    currentPhaseParticipants: number;
-    userCurrentPhaseContributions: string;
-    currentPhaseTokens: string;
-    userParticipated: boolean;
-  };
-}
-interface PhaseProgressProps {
-  progress: number;
-  blocksSinceLaunch: number;
-  estimatedReward: string;
-  totalTokensThisPhase: string;
-  remainingBlocks: number;
-  phaseEndBlock: number;
-  currentPhase: number;
-  userCurrentPhaseContributions: string;
-  participantsCount: number;
-  currentPhaseContributions: string;
-  userParticipated: boolean; // Added to pass userParticipated
-}
-interface ParticipateCardProps { ethAmount: string; setEthAmount: React.Dispatch<React.SetStateAction<string>>; errorMessage: string | null; sendEth: () => void }
-interface MintCardProps { mintablePhases: number[]; mintTokens: (phase: number) => void; multiMint: () => void; isLoading: boolean }
-interface ParticipationCardProps { userContributions: string; participantsCount: number; tokensMintedThisPhase: string; phaseContributions: string[] }
-interface MarketCapPieChartProps { totalMinted: string }
-interface PhaseParticipantsPieChartProps { phaseData: PieData[]; totalTokens: string; currentPhase: number }
-interface GlobalPieChartProps { totalData: PieData[]; totalMinted: string }
-
-// Use Recharts' PieSectorDataItem type or unknown for flexibility
-interface PieActiveShapeProps {
+interface ActiveShapeProps {
   cx: number;
   cy: number;
   midAngle: number;
@@ -95,7 +43,7 @@ const TOTAL_BLOCKS = 1337;
 const TOTAL_SUPPLY = 1000000;
 const DYNAMIC_MINT_AMOUNT = TOTAL_SUPPLY * 0.75;
 const MAX_PIE_SLICES = 5;
-const BASE_GAS_LIMIT = 100000; // Base gas limit per phase, matching single mint (~0.0048 SepoliaETH)
+const BASE_GAS_LIMIT = 100000;
 
 const PHASES = [
   { start: 0, end: 200, amount: (DYNAMIC_MINT_AMOUNT * 0.1).toString() },
@@ -107,100 +55,32 @@ const PHASES = [
   { start: 1300, end: 1337, amount: (DYNAMIC_MINT_AMOUNT * 0.1).toString() },
 ];
 
-// ABI (unchanged)
+// ABI
 const ABI = [
-  {
-    constant: true,
-    inputs: [],
-    name: "totalSupply",
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [],
-    name: "launchBlock",
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [],
-    name: "lastMintBlock",
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [],
-    name: "getCurrentPhase",
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [{ name: "phase", type: "uint256" }, { name: "user", type: "address" }],
-    name: "contributions",
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [{ name: "phase", type: "uint256" }],
-    name: "totalContributions",
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: false,
-    inputs: [{ name: "phase", type: "uint256" }],
-    name: "mintUserShare",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    constant: false,
-    inputs: [],
-    name: "mintMultipleUserShares",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [],
-    name: "owner",
-    outputs: [{ name: "", type: "address" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [{ name: "phase", type: "uint256" }, { name: "user", type: "address" }],
-    name: "hasMinted",
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    constant: true,
-    inputs: [{ name: "phase", type: "uint256" }],
-    name: "getPhaseContributors",
-    outputs: [{ name: "", type: "address[]" }],
-    stateMutability: "view",
-    type: "function",
-  },
+  "function totalSupply() view returns (uint256)",
+  "function launchBlock() view returns (uint256)",
+  "function getCurrentPhase() view returns (uint256)",
+  "function contributions(uint256 phase, address user) view returns (uint256)",
+  "function totalContributions(uint256 phase) view returns (uint256)",
+  "function mintUserShare(uint256 phase)",
+  "function mintMultipleUserShares()",
+  "function hasMinted(uint256 phase, address user) view returns (bool)",
+  "function getPhaseContributors(uint256 phase) view returns (address[])",
+  "function phases(uint256) view returns (uint256, uint256, uint256)",
+  "function withdraw()",
+  "function getEligibleTokens(uint256 phase, address user) view returns (uint256)",
+  "event ContributionReceived(address indexed contributor, uint256 phase, uint256 amount)",
+  "event TokensMinted(address indexed user, uint256 phase, uint256 amount)"
 ] as const;
 
-// Reusable Components
-const ToggleDecimals = ({ value }: ToggleDecimalsProps) => {
+// Utility Functions
+const abbreviateNumber = (num: number): string => {
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+  return num.toLocaleString();
+};
+
+const ToggleDecimals = ({ value }: { value: string }) => {
   const [showFull, setShowFull] = useState(false);
   const numericValue = parseFloat(value);
   const displayValue = numericValue < 1 ? value : (showFull ? value : numericValue.toFixed(2));
@@ -208,49 +88,58 @@ const ToggleDecimals = ({ value }: ToggleDecimalsProps) => {
   return (
     <span
       onClick={() => setShowFull(!showFull)}
-      className="cursor-pointer hover:text-indigo-400 transition-colors bg-gradient-to-r from-indigo-500 to-purple-500 text-transparent bg-clip-text font-semibold text-xs sm:text-sm"
+      className="cursor-pointer text-indigo-400 hover:text-indigo-300 transition-colors font-semibold text-sm"
     >
       {displayValue}
     </span>
   );
 };
 
-const abbreviateNumber = (num: number): string => {
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-  return num.toLocaleString();
+const getPendingContributions = (address: string): PieData[] => {
+  if (typeof window === "undefined") return []; // Prevent SSR access
+  const data = localStorage.getItem(`pendingContributions_${address}`);
+  return data ? JSON.parse(data) : [];
 };
 
-const renderActiveShape = (props: unknown) => {
-  // Cast props to PieActiveShapeProps & { totalTokens?: string } for type safety
-  const typedProps = props as PieActiveShapeProps & { totalTokens?: string };
+const setPendingContributions = (address: string, contributions: PieData[]) => {
+  if (typeof window === "undefined") return; // Prevent SSR access
+  localStorage.setItem(`pendingContributions_${address}`, JSON.stringify(contributions));
+};
+
+const renderActiveShape = (props: ActiveShapeProps): JSX.Element => {
+  const {
+    cx,
+    cy,
+    midAngle,
+    innerRadius,
+    outerRadius,
+    startAngle,
+    endAngle,
+    fill,
+    payload,
+    percent,
+    value,
+  } = props;
   const RADIAN = Math.PI / 180;
-  const { cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value, totalTokens } = typedProps;
   const sin = Math.sin(-RADIAN * midAngle);
   const cos = Math.cos(-RADIAN * midAngle);
   const sx = cx + (outerRadius + 10) * cos;
   const sy = cy + (outerRadius + 10) * sin;
   const mx = cx + (outerRadius + 15) * cos;
   const my = cy + (outerRadius + 15) * sin;
-  const ex = cx + (outerRadius + 20) * cos; // Reduced offset for mobile to bring text closer
-  const ey = cy + (outerRadius + 20) * sin; // Reduced offset for mobile to bring text closer
+  const ex = cx + (outerRadius + 20) * cos;
+  const ey = cy + (outerRadius + 20) * sin;
   const textAnchor = cos >= 0 ? "start" : "end";
 
-  const copyAddress = () => {
-    if (payload.address) {
-      navigator.clipboard.writeText(payload.address);
-      alert(`Copied address: ${payload.address}`);
-    }
-  };
-
-  // Show more decimals for small values (< 1) in hover text, otherwise use two decimals
+  const copyAddress = () =>
+    payload.address && navigator.clipboard.writeText(payload.address).then(() => alert(`Copied: ${payload.address}`));
   const displayValue = value < 1 ? value.toFixed(5) : value.toFixed(2);
-  // Format tokens to show full number with commas for large values
-  const displayTokens = payload.tokens ? payload.tokens.toLocaleString() : "0";
+  const displayTokens = payload.isPending ? "Pending" : payload.tokens ? abbreviateNumber(payload.tokens) : "0";
+  const displayEth = payload.value ? abbreviateNumber(payload.value) : "0";
 
   return (
-    <g style={{ zIndex: 1000 }}>
-      <text x={cx} y={cy} dy={8} textAnchor="middle" fill="#fff" className="font-semibold text-xs sm:text-sm md:text-base">
+    <g>
+      <text x={cx} y={cy} dy={8} textAnchor="middle" fill="#fff" className="font-semibold text-sm">
         {payload.name}
       </text>
       <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius} startAngle={startAngle} endAngle={endAngle} fill={fill} />
@@ -270,35 +159,55 @@ const renderActiveShape = (props: unknown) => {
         y={ey}
         textAnchor={textAnchor}
         fill="#fff"
-        className="text-xs sm:text-xs md:text-sm cursor-pointer hover:underline max-w-[100px] truncate sm:max-w-[150px]"
+        className="text-sm cursor-pointer hover:underline max-w-[150px] truncate"
         onClick={copyAddress}
-        onTouchStart={copyAddress} // Touch support for mobile
       >
-        {payload.address ? `${payload.address.slice(0, 6)}...${payload.address.slice(-4)}` : displayValue}
+        {payload.address ? `${payload.address.slice(0, 6)}...${payload.address.slice(-4)}` : `${displayValue} ${payload.name.includes("Realized") || payload.name.includes("Unrealized") ? "MMM" : "ETH"}`}
       </text>
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={14} textAnchor={textAnchor} fill="#999" className="text-xs sm:text-xs md:text-sm">
-        {`(${Math.round(percent * 100)}%)`}
-      </text>
-      <text
-        x={ex + (cos >= 0 ? 1 : -1) * 12}
-        y={ey}
-        dy={28}
-        textAnchor={textAnchor}
-        fill="#fff"
-        className="text-xs sm:text-xs md:text-sm max-w-[100px] truncate sm:max-w-[150px]"
-      >
-        {displayTokens} MMM
-      </text>
-      {totalTokens && (
+      {payload.address && (
+        <>
+          <text
+            x={ex + (cos >= 0 ? 1 : -1) * 12}
+            y={ey}
+            dy={14}
+            textAnchor={textAnchor}
+            fill="#fff"
+            className="text-xs"
+          >
+            {displayTokens} MMM
+          </text>
+          <text
+            x={ex + (cos >= 0 ? 1 : -1) * 12}
+            y={ey}
+            dy={28}
+            textAnchor={textAnchor}
+            fill="#fff"
+            className="text-xs"
+          >
+            {displayEth} ETH
+          </text>
+          <text
+            x={ex + (cos >= 0 ? 1 : -1) * 12}
+            y={ey}
+            dy={42}
+            textAnchor={textAnchor}
+            fill="#999"
+            className="text-xs"
+          >
+            {`(${Math.round(percent * 100)}%)`}
+          </text>
+        </>
+      )}
+      {!payload.address && (
         <text
           x={ex + (cos >= 0 ? 1 : -1) * 12}
           y={ey}
-          dy={42}
+          dy={14}
           textAnchor={textAnchor}
-          fill="#fff"
-          className="text-xs sm:text-xs md:text-sm max-w-[100px] truncate sm:max-w-[150px] hidden sm:block" // Hide on mobile, show on desktop
+          fill="#999"
+          className="text-xs"
         >
-          {abbreviateNumber(parseFloat(totalTokens))} MMM
+          {`(${Math.round(percent * 100)}%)`}
         </text>
       )}
     </g>
@@ -314,478 +223,102 @@ const aggregatePieData = (data: PieData[], maxSlices: number): PieData[] => {
       name: "Others",
       value: acc.value + curr.value,
       tokens: (acc.tokens || 0) + (curr.tokens || 0),
-      address: undefined, // Ensure address is undefined for "Others"
+      isPending: acc.isPending || curr.isPending,
     }),
-    { name: "Others", value: 0, tokens: 0 } as PieData
+    { name: "Others", value: 0, tokens: 0, isPending: false } as PieData
   );
   return [...topData, others];
 };
 
-const GlobalPieChart = ({ totalData, totalMinted }: GlobalPieChartProps) => {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const COLORS = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#d1d5db"];
-  const aggregatedData = useMemo(() => aggregatePieData(totalData, MAX_PIE_SLICES), [totalData]);
-
-  return (
-    <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-    >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Global Contribs</h3>
-      <ResponsiveContainer width="100%" height={250}>
-        <PieChart>
-          <Pie
-            activeIndex={activeIndex}
-            activeShape={(props: unknown) => renderActiveShape(props)}
-            data={aggregatedData}
-            cx="50%"
-            cy="50%"
-            innerRadius={42} // Further reduced for mobile
-            outerRadius={55} // Further reduced for mobile
-            dataKey="value"
-            onMouseEnter={(_, index) => setActiveIndex(index)}
-            onTouchStart={(_, index) => setActiveIndex(index)} // Touch support for mobile
-          >
-            {aggregatedData.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
-            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="#fff" className="text-xs sm:text-sm md:text-base font-bold">
-              {totalMinted} MMM
-            </text>
-          </Pie>
-          <Legend wrapperStyle={{ color: "#fff", fontSize: "10px", maxHeight: "20px", overflowY: "auto" }} />
-        </PieChart>
-      </ResponsiveContainer>
-    </motion.div>
-  );
-};
-
-const PhaseParticipantsPieChart = ({ phaseData, totalTokens, currentPhase }: PhaseParticipantsPieChartProps) => {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const COLORS = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#d1d5db"];
-  const aggregatedData = useMemo(() => aggregatePieData(phaseData, MAX_PIE_SLICES), [phaseData]);
-
-  return (
-    <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6 h-full"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-    >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Phase {currentPhase} Participants</h3>
-      <ResponsiveContainer width="100%" height={250}>
-        <PieChart>
-          <Pie
-            activeIndex={activeIndex}
-            activeShape={(props: unknown) => renderActiveShape(props)}
-            data={aggregatedData}
-            cx="50%"
-            cy="50%"
-            innerRadius={42} // Reduced further for mobile
-            outerRadius={55} // Reduced further for mobile
-            dataKey="value"
-            onMouseEnter={(_, index) => setActiveIndex(index)}
-            onTouchStart={(_, index) => setActiveIndex(index)} // Touch support for mobile
-          >
-            {aggregatedData.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
-            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="#fff" className="text-xs sm:text-sm md:text-base font-bold">
-              {totalTokens} MMM
-            </text>
-          </Pie>
-          <Legend wrapperStyle={{ color: "#fff", fontSize: "10px", maxHeight: "20px", overflowY: "auto" }} />
-        </PieChart>
-      </ResponsiveContainer>
-    </motion.div>
-  );
-};
-
-const ParticipationPieChart = ({ data }: { data: PieData[] }) => {
+// Components
+const PieChartCard = ({
+  title,
+  icon,
+  data,
+  totalTokens,
+  currentPhase,
+  colors = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#d1d5db"],
+  extraText,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  data: PieData[];
+  totalTokens?: string;
+  currentPhase?: number;
+  colors?: string[];
+  extraText?: string;
+}) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const aggregatedData = useMemo(() => aggregatePieData(data, MAX_PIE_SLICES), [data]);
 
   return (
     <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700 hover:shadow-2xl transition-shadow duration-300"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3 text-center">Your Contribs</h3>
-      <ResponsiveContainer width="100%" height={250}>
-        <PieChart>
-          <Pie
-            activeIndex={activeIndex}
-            activeShape={(props: unknown) => renderActiveShape(props)}
-            data={aggregatedData}
-            cx="50%"
-            cy="50%"
-            innerRadius={42} // Reduced further for mobile
-            outerRadius={55} // Reduced further for mobile
-            fill="#4f46e5"
-            dataKey="value"
-            onMouseEnter={(_, index) => setActiveIndex(index)}
-            onTouchStart={(_, index) => setActiveIndex(index)} // Touch support for mobile
-          />
-          <Legend wrapperStyle={{ color: "#fff", fontSize: "10px", maxHeight: "20px", overflowY: "auto" }} />
-        </PieChart>
-      </ResponsiveContainer>
-    </motion.div>
-  );
-};
-
-const MarketCapPieChart = ({ totalMinted }: MarketCapPieChartProps) => {
-  const minted = parseFloat(totalMinted);
-  const unminted = TOTAL_SUPPLY - minted;
-  const data = useMemo(() => [
-    { name: "Minted", value: minted },
-    { name: "Unminted", value: unminted },
-  ], [minted, unminted]); // Ensure unminted is included in dependencies
-  const COLORS = ["#4f46e5", "#d1d5db"];
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  return (
-    <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.8 }}
-    >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3">Market Cap</h3>
-      <ResponsiveContainer width="100%" height={250}>
-        <PieChart>
-          <Pie
-            activeIndex={activeIndex}
-            activeShape={(props: unknown) => renderActiveShape(props)}
-            data={data}
-            cx="50%"
-            cy="50%"
-            innerRadius={42} // Reduced further for mobile
-            outerRadius={55} // Reduced further for mobile
-            dataKey="value"
-            onMouseEnter={(_, index) => setActiveIndex(index)}
-            onTouchStart={(_, index) => setActiveIndex(index)} // Touch support for mobile
-          >
-            {data.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
-            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="#fff" className="text-xs sm:text-sm md:text-base font-bold">
-              {TOTAL_SUPPLY} MMM
-            </text>
-          </Pie>
-          <Legend wrapperStyle={{ color: "#fff", fontSize: "10px", maxHeight: "20px", overflowY: "auto" }} />
-        </PieChart>
-      </ResponsiveContainer>
-    </motion.div>
-  );
-};
-
-const Stats = ({ globalStats, phaseStats }: StatsProps) => (
-  <motion.div
-    className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.5 }}
-  >
-    <h2 className="text-sm sm:text-base font-bold text-white mb-3">Stats Overview</h2>
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div>
-        <h3 className="text-xs sm:text-sm font-semibold text-white mb-2">Global</h3>
-        <table className="w-full text-white text-xs sm:text-sm border-collapse">
-          <tbody>
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Minted Tokens</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={globalStats.totalMinted} /> MMM</td>
-            </tr>
-            <tr>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Contributions</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={globalStats.totalContributions} /> ETH</td>
-            </tr>
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Participants</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{globalStats.totalParticipants}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div>
-        <h3 className="text-xs sm:text-sm font-semibold text-white mb-2">Phase {phaseStats.currentPhase}</h3>
-        <table className="w-full text-white text-xs sm:text-sm border-collapse">
-          <tbody>
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Tokens</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={phaseStats.currentPhaseTokens} /> MMM</td>
-            </tr>
-            <tr>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Contributions</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={phaseStats.currentPhaseContributions} /> ETH</td>
-            </tr>
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Participants</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{phaseStats.currentPhaseParticipants}</td>
-            </tr>
-            <tr>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{phaseStats.userParticipated ? "Your Contribution" : "Contribution Potential"}</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={phaseStats.userCurrentPhaseContributions} /> ETH</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </motion.div>
-);
-
-const ParticipationCard = ({ userContributions, participantsCount, tokensMintedThisPhase, phaseContributions }: ParticipationCardProps) => (
-  <motion.div
-    className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.5, delay: 0.5 }}
-  >
-    <h2 className="text-sm sm:text-base font-bold text-white mb-3">Your Participation</h2>
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div>
-        <table className="w-full text-white text-xs sm:text-sm border-collapse">
-          <tbody>
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Total Contributions</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={userContributions} /> ETH</td>
-            </tr>
-            <tr>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Phase Participants</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{participantsCount}</td>
-            </tr>
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Tokens Minted</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{tokensMintedThisPhase}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div className="max-h-28 sm:max-h-36 overflow-y-auto scrollbar-thin scrollbar-thumb-indigo-500 scrollbar-track-gray-700">
-        <table className="w-full text-left text-xs sm:text-sm text-white border-collapse">
-          <thead>
-            <tr className="bg-gray-700">
-              <th className="py-1 px-2 sm:px-3 border-b border-gray-600">Phase</th>
-              <th className="py-1 px-2 sm:px-3 border-b border-gray-600">ETH</th>
-            </tr>
-          </thead>
-          <tbody>
-            {phaseContributions.map((contrib, index) => contrib !== "0" && (
-              <tr key={index} className={index % 2 === 0 ? "bg-gray-600" : ""}>
-                <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{index}</td>
-                <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{contrib}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </motion.div>
-);
-
-const ParticipateCard = ({ ethAmount, setEthAmount, errorMessage, sendEth }: ParticipateCardProps) => (
-  <motion.div
-    className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.5, delay: 0.3 }}
-  >
-    <h2 className="text-sm sm:text-base font-bold text-white mb-3">Participate</h2>
-    <p className="text-gray-400 mb-3 text-xs sm:text-sm">Send ETH to join the current phase.</p>
-    <input
-      type="number"
-      value={ethAmount}
-      onChange={(e) => setEthAmount(e.target.value)}
-      className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm"
-      step="0.01"
-      min="0.001"
-      placeholder="Enter ETH amount (min 0.001)"
-    />
-    {errorMessage && <p className="text-red-400 text-xs mt-2">{errorMessage}</p>}
-    <button
-      onClick={sendEth}
-      className="mt-3 w-full py-2 bg-gradient-to-r from-green-500 to-teal-500 rounded-md hover:scale-105 transition-transform text-white text-xs sm:text-sm font-semibold shadow-md"
-    >
-      Send ETH
-    </button>
-  </motion.div>
-);
-
-const MintCard = ({ mintablePhases, mintTokens, multiMint, isLoading }: MintCardProps) => {
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const handleMultiMintConfirm = () => {
-    setShowConfirm(false);
-    multiMint();
-  };
-
-  return (
-    <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.4 }}
-    >
-      <h2 className="text-sm sm:text-base font-bold text-white mb-3">Mint Tokens</h2>
-      {mintablePhases.length === 0 ? (
-        <p className="text-gray-400 text-xs sm:text-sm">No phases ready for minting.</p>
+      <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+        {icon}
+        <span className="ml-2">{title} {currentPhase !== undefined ? `Phase ${currentPhase}` : ""}</span>
+      </h3>
+      {extraText && <p className="text-gray-300 text-sm mb-4">{extraText}</p>}
+      {data.length === 0 && currentPhase !== undefined ? (
+        <div className="text-center text-gray-400 text-sm h-[250px] flex flex-col justify-center">
+          <p className="text-indigo-300 font-medium">No participants in this phase.</p>
+          <p className="mt-2">Phase {currentPhase} has no contributions yet.</p>
+        </div>
       ) : (
-        <div className="space-y-3">
-          <table className="w-full text-white text-xs sm:text-sm border-collapse">
-            <tbody>
-              {mintablePhases.map((phase, index) => (
-                <tr key={phase} className={index % 2 === 0 ? "bg-gray-700" : ""}>
-                  <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Phase {phase}</td>
-                  <td className="py-1 px-2 sm:px-3 border-b border-gray-600">
-                    <button
-                      onClick={() => mintTokens(phase)}
-                      disabled={isLoading}
-                      className="w-full py-1 bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 transition-colors text-white text-xs sm:text-sm font-semibold shadow-md"
-                    >
-                      {isLoading ? "Minting..." : "Mint"}
-                    </button>
-                  </td>
-                </tr>
+        <ResponsiveContainer width="100%" height={250}>
+          <PieChart>
+            <Pie
+              activeIndex={activeIndex}
+              activeShape={renderActiveShape}
+              data={aggregatedData}
+              cx="50%"
+              cy="50%"
+              innerRadius={50}
+              outerRadius={70}
+              dataKey="value"
+              onMouseEnter={(_, index) => setActiveIndex(index)}
+            >
+              {aggregatedData.map((_, index) => (
+                <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
               ))}
-            </tbody>
-          </table>
-          <button
-            onClick={() => setShowConfirm(true)}
-            disabled={isLoading || mintablePhases.length === 0}
-            className="w-full py-2 bg-purple-600 rounded-md hover:bg-purple-700 disabled:bg-purple-400 transition-colors text-white text-xs sm:text-sm font-semibold shadow-md"
-          >
-            {isLoading ? "Minting..." : "Mint All"}
-          </button>
-        </div>
+              {totalTokens && (
+                <text x="50%" y="50%" textAnchor="middle" fill="#fff" className="text-sm font-bold">
+                  {abbreviateNumber(parseFloat(totalTokens))} MMM
+                </text>
+              )}
+            </Pie>
+            <Legend wrapperStyle={{ color: "#fff", fontSize: "12px" }} />
+          </PieChart>
+        </ResponsiveContainer>
       )}
-      {showConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-700">
-            <p className="text-white text-xs sm:text-sm mb-3">
-              This action will mint all eligible phases. Estimated cost may exceed single mints. Proceed?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={handleMultiMintConfirm}
-                disabled={isLoading}
-                className="px-3 py-2 bg-green-600 rounded-md hover:bg-green-700 disabled:bg-green-400 text-white text-xs sm:text-sm font-semibold shadow-md"
-              >
-                {isLoading ? "Minting..." : "Confirm"}
-              </button>
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="px-3 py-2 bg-red-600 rounded-md hover:bg-red-700 text-white text-xs sm:text-sm font-semibold shadow-md"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </motion.div>
-  );
-};
-
-const PhaseProgress = ({
-  progress,
-  blocksSinceLaunch,
-  estimatedReward,
-  totalTokensThisPhase,
-  remainingBlocks,
-  phaseEndBlock,
-  currentPhase,
-  userCurrentPhaseContributions,
-  participantsCount,
-  currentPhaseContributions,
-  userParticipated, // Added to use the prop instead of calculating internally
-}: PhaseProgressProps) => {
-  return (
-    <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.2 }}
-    >
-      <h2 className="text-sm sm:text-base font-bold text-white mb-3">Phase {currentPhase} Progress</h2>
-      <div className="mb-3">
-        <p className="text-white mb-2 text-xs sm:text-sm"><strong>Progress:</strong> {Math.round(progress)}%</p>
-        <div className="bg-gray-700 h-2 sm:h-3 rounded-full overflow-hidden">
-          <motion.div
-            className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full"
-            initial={{ width: 0 }}
-            animate={{ width: `${progress}%` }}
-            transition={{ duration: 1 }}
-          />
-        </div>
-        <p className="text-xs text-gray-400 mt-1">{blocksSinceLaunch} / {TOTAL_BLOCKS} blocks</p>
-      </div>
-      <table className="w-full text-white text-xs sm:text-sm border-collapse">
-        <tbody>
-          <tr className="bg-gray-700">
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Total Tokens</td>
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={totalTokensThisPhase} /> MMM</td>
-          </tr>
-          {userParticipated && (
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Your Reward</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={estimatedReward} /> MMM</td>
-            </tr>
-          )}
-          {userParticipated && (
-            <tr className="bg-gray-700">
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Your Contribution</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={userCurrentPhaseContributions} /> ETH</td>
-            </tr>
-          )}
-          <tr className={userParticipated ? "" : "bg-gray-700"}>
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Participants</td>
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{participantsCount}</td>
-          </tr>
-          {!userParticipated && (
-            <tr>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Phase Contributions</td>
-              <td className="py-1 px-2 sm:px-3 border-b border-gray-600"><ToggleDecimals value={currentPhaseContributions} /> ETH</td>
-            </tr>
-          )}
-          <tr className={userParticipated ? "bg-gray-700" : ""}>
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Launch Phase End</td>
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{phaseEndBlock}</td>
-          </tr>
-          <tr>
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600">Remaining Blocks</td>
-            <td className="py-1 px-2 sm:px-3 border-b border-gray-600">{remainingBlocks > 0 ? remainingBlocks : 0}</td>
-          </tr>
-        </tbody>
-      </table>
     </motion.div>
   );
 };
 
 const MintedTokensChart = ({ data }: { data: HistoricalData[] }) => {
-  // Transform phase numbers to "Phase X" format
   const formattedData = data.map(item => ({
-    phase: `Phase ${item.phase}`,
+    phase: item.phase === "0" ? "Phase 0" : `Phase ${item.phase}`,
     minted: item.minted,
   }));
 
   return (
     <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
+      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.7 }}
+      transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3">Your Minted Tokens</h3>
+      <h3 className="text-xl font-semibold text-white mb-4">Your Minted Tokens</h3>
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={formattedData}>
-          <XAxis dataKey="phase" type="category" tick={{ fontSize: 10, fill: "#fff" }} />
+          <XAxis dataKey="phase" tick={{ fontSize: 12, fill: "#fff" }} />
           <Line type="monotone" dataKey="minted" stroke="#10b981" strokeWidth={2} dot={{ fill: "#6ee7b7" }} name="Minted (MMM)" />
-          <Tooltip contentStyle={{ backgroundColor: "#1f2937", border: "none", color: "#fff", fontSize: "10px" }} />
-          <Legend wrapperStyle={{ color: "#fff", fontSize: "10px", maxHeight: "20px", overflowY: "auto" }} />
+          <Tooltip contentStyle={{ backgroundColor: "#1f2937", border: "none", color: "#fff" }} />
+          <Legend wrapperStyle={{ color: "#fff", fontSize: "12px" }} />
         </LineChart>
       </ResponsiveContainer>
     </motion.div>
@@ -793,176 +326,269 @@ const MintedTokensChart = ({ data }: { data: HistoricalData[] }) => {
 };
 
 const ContributionsChart = ({ data }: { data: HistoricalData[] }) => {
-  // Transform phase numbers to "Phase X" format
   const formattedData = data.map(item => ({
-    phase: `Phase ${item.phase}`,
+    phase: item.phase === "0" ? "Phase 0" : `Phase ${item.phase}`,
     contributions: item.contributions,
   }));
 
   return (
     <motion.div
-      className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg border border-gray-700 mb-4 sm:mb-6"
+      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.7 }}
+      transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm sm:text-base font-semibold text-white mb-3">Your Contributions</h3>
+      <h3 className="text-xl font-semibold text-white mb-4">Your Contributions</h3>
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={formattedData}>
-          <XAxis dataKey="phase" type="category" tick={{ fontSize: 10, fill: "#fff" }} />
+          <XAxis dataKey="phase" tick={{ fontSize: 12, fill: "#fff" }} />
           <Line type="monotone" dataKey="contributions" stroke="#4f46e5" strokeWidth={2} dot={{ fill: "#818cf8" }} name="Contributions (ETH)" />
-          <Tooltip contentStyle={{ backgroundColor: "#1f2937", border: "none", color: "#fff", fontSize: "10px" }} />
-          <Legend wrapperStyle={{ color: "#fff", fontSize: "10px", maxHeight: "20px", overflowY: "auto" }} />
+          <Tooltip contentStyle={{ backgroundColor: "#1f2937", border: "none", color: "#fff" }} />
+          <Legend wrapperStyle={{ color: "#fff", fontSize: "12px" }} />
         </LineChart>
       </ResponsiveContainer>
     </motion.div>
   );
 };
 
+const HistoricalPhaseCard = ({
+  phase,
+  progress,
+  blocksPassed,
+  totalBlocks,
+  totalTokens,
+  participants,
+}: {
+  phase: number;
+  progress: number;
+  blocksPassed: number;
+  totalBlocks: number;
+  totalTokens: string;
+  participants: PieData[];
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <motion.div
+      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+      initial={{ opacity: 0, y: 50 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+    >
+      <h2 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center justify-between">
+        <span>Phase {phase} (Completed)</span>
+        <button onClick={() => setIsExpanded(!isExpanded)} className="text-gray-300 hover:text-white">
+          {isExpanded ? <FaChevronUp /> : <FaChevronDown />}
+        </button>
+      </h2>
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm text-gray-300">
+            Progress: {Math.round(progress)}% ({blocksPassed} / {totalBlocks} blocks)
+          </p>
+          <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
+            <motion.div
+              className="bg-indigo-500 h-full rounded-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 1 }}
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>Total Tokens:</div>
+          <div><ToggleDecimals value={totalTokens} /> MMM</div>
+          <div>Total Participants:</div>
+          <div>{participants.length}</div>
+        </div>
+      </div>
+      {isExpanded && (
+        <div className="mt-4">
+          <h3 className="text-lg font-semibold text-white mb-2">Participants</h3>
+          {participants.length > 0 ? (
+            <ul className="text-sm text-gray-300 space-y-2 max-h-40 overflow-y-auto">
+              {participants.map((p, index) => (
+                <li key={index} className="truncate">
+                  {p.address}: {abbreviateNumber(p.tokens || 0)} MMM ({p.value.toFixed(4)} ETH)
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-gray-400">No participants in this phase.</p>
+          )}
+          <PieChartCard
+            title=""
+            icon={<></>}
+            data={participants}
+            totalTokens={totalTokens}
+            currentPhase={phase}
+          />
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
 // Main Component
-export default function Home() {
+export default function Dashboard() {
+  
+  const [ethAmount, setEthAmount] = useState("0.01");
+  const [isSending, setIsSending] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isMinting, setIsMinting] = useState<Map<number, boolean>>(new Map());
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [activeNetwork, setActiveNetwork] = useState<ChainId>(sepolia.id);
+  const [publicProvider] = useState(() =>
+    typeof window !== "undefined"
+      ? new ethers.JsonRpcProvider(
+          process.env.INFURA
+            ? `https://sepolia.infura.io/v3/${process.env.INFURA}`
+            : "https://rpc.sepolia.org"
+        )
+      : null
+  );
+  const [contractData, setContractData] = useState({
+    currentPhase: 0,
+    totalMinted: "0",
+    blockNumber: 0,
+    launchBlock: 0,
+    userContributions: "0",
+    totalContributions: "0",
+    mintablePhases: [] as number[],
+    mintedPhases: [] as number[],
+    estimatedReward: "0",
+    phaseContributions: Array(PHASES.length).fill("0"),
+    participantsCount: 0,
+    totalParticipants: 0,
+    currentPhaseContributions: "0",
+    userCurrentPhaseContributions: "0",
+    totalTokensThisPhase: PHASES[0].amount,
+    phaseParticipants: [] as PieData[],
+    totalParticipantsData: [] as PieData[],
+    pendingPhaseParticipants: [] as PieData[],
+    historicalData: [] as HistoricalData[],
+    historicalPhaseParticipants: [] as PieData[][],
+    historicalPhaseProgress: [] as { phase: number; progress: number; blocksPassed: number; totalBlocks: number }[],
+    isLaunchComplete: false,
+  });
+  const [lastTxHash, setLastTxHash] = useState<string | null>(null);
+
   const { address: account, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
-  const { sendTransaction, data: txData, error: txError, isSuccess, isError } = useSendTransaction();
+  const { sendTransaction, isSuccess, error: rawTxError, data: txData } = useSendTransaction();
+  const txError = rawTxError as Error | null;
 
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [contract, setContract] = useState<ethers.Contract | null>(null);
-  const [currentPhase, setCurrentPhase] = useState<number>(0);
-  const [totalMinted, setTotalMinted] = useState<string>("0");
-  const [blockNumber, setBlockNumber] = useState<number>(0);
-  const [launchBlock, setLaunchBlock] = useState<number>(0);
-  const [userContributions, setUserContributions] = useState<string>("0");
-  const [totalContributions, setTotalContributions] = useState<string>("0");
-  const [ethAmount, setEthAmount] = useState<string>("0.01");
-  const [activeNetwork, setActiveNetwork] = useState<ChainId>(sepolia.id);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false); // Changed to false initially for testing
-  const [mintablePhases, setMintablePhases] = useState<number[]>([]);
-  const [nextPhaseBlocks, setNextPhaseBlocks] = useState<number>(0);
-  const [estimatedReward, setEstimatedReward] = useState<string>("0");
-  const [phaseContributions, setPhaseContributions] = useState<string[]>(Array(PHASES.length).fill("0"));
-  const [participantsCount, setParticipantsCount] = useState<number>(0);
-  const [totalParticipants, setTotalParticipants] = useState<number>(0);
-  const [tokensMintedThisPhase, setTokensMintedThisPhase] = useState<string>("N/A");
-  const [historicalData, setHistoricalData] = useState<HistoricalData[]>([]);
-  const [currentPhaseContributions, setCurrentPhaseContributions] = useState<string>("0");
-  const [userCurrentPhaseContributions, setUserCurrentPhaseContributions] = useState<string>("0");
-  const [totalTokensThisPhase, setTotalTokensThisPhase] = useState<string>(PHASES[0].amount);
-  const [phaseEndBlock, setPhaseEndBlock] = useState<number>(0);
-  const [phaseParticipants, setPhaseParticipants] = useState<PieData[]>([]);
-  const [totalParticipantsData, setTotalParticipantsData] = useState<PieData[]>([]);
 
-  const launchPhaseProgress = blockNumber && launchBlock > 0 ? Math.min(((blockNumber - launchBlock) / TOTAL_BLOCKS) * 100, 100) : 0;
-  const blocksSinceLaunch = blockNumber - launchBlock;
-  const userParticipated = parseFloat(userCurrentPhaseContributions) > 0; // Keep this to avoid unused variable error
+  const launchPhaseProgress =
+    contractData.blockNumber && contractData.launchBlock > 0
+      ? Math.min(((contractData.blockNumber - contractData.launchBlock) / TOTAL_BLOCKS) * 100, 100)
+      : 0;
+  const blocksSinceLaunch = Math.min(contractData.blockNumber - contractData.launchBlock, TOTAL_BLOCKS);
+  const userParticipated = parseFloat(contractData.userCurrentPhaseContributions) > 0 || contractData.pendingPhaseParticipants.length > 0;
+  const phaseStartBlock = contractData.launchBlock + PHASES[contractData.currentPhase].start;
+  const phaseEndBlock = contractData.launchBlock + PHASES[contractData.currentPhase].end;
+  const blocksInPhase = phaseEndBlock - phaseStartBlock;
+  const blocksPassedInPhase = Math.max(0, Math.min(contractData.blockNumber - phaseStartBlock, blocksInPhase));
+  const launchPhaseEndProgress = blocksInPhase > 0 ? (blocksPassedInPhase / blocksInPhase) * 100 : 0;
 
-  useEffect(() => {
-    if (chainId && (chainId === sepolia.id || chainId === mainnet.id)) setActiveNetwork(chainId as ChainId);
-  }, [chainId]);
+  const pieData = useMemo(
+    () =>
+      contractData.phaseContributions
+        .map((contrib, i) => {
+          const userContrib = parseFloat(contrib);
+          const totalContrib = contractData.historicalData[i]?.contributions || 0;
+          const phaseTokens = parseFloat(PHASES[i].amount);
+          const tokens =
+            totalContrib > 0 && contractData.mintedPhases.includes(i)
+              ? (userContrib / totalContrib) * phaseTokens
+              : i === contractData.currentPhase && !contractData.isLaunchComplete
+              ? parseFloat(contractData.estimatedReward)
+              : 0;
+          return { name: `Phase ${i}`, value: userContrib, tokens };
+        })
+        .filter((item) => item.value > 0),
+    [contractData.phaseContributions, contractData.historicalData, contractData.mintedPhases, contractData.currentPhase, contractData.estimatedReward, contractData.isLaunchComplete]
+  );
+
+  const totalUserContributions = useMemo(() => {
+    return contractData.phaseContributions.reduce((sum, contrib) => sum + parseFloat(contrib), 0);
+  }, [contractData.phaseContributions]);
+
+  const totalMintableTokens = useMemo(() => {
+    return contractData.mintablePhases.reduce((sum, phase) => {
+      const userContrib = parseFloat(contractData.phaseContributions[phase]);
+      const totalContrib = contractData.historicalData[phase]?.contributions || 1;
+      const phaseTokens = parseFloat(PHASES[phase].amount);
+      return sum + (userContrib / totalContrib) * phaseTokens;
+    }, 0);
+  }, [contractData.mintablePhases, contractData.phaseContributions, contractData.historicalData]);
 
   const connectWallet = useCallback(() => {
     const metaMaskConnector = connectors.find((c) => c.name === "MetaMask");
-    if (!metaMaskConnector) return alert("MetaMask not found!");
-    try {
-      connect({ connector: metaMaskConnector });
-    } catch (error) {
-      console.error("Wallet connection failed:", error);
-    }
+    if (metaMaskConnector) connect({ connector: metaMaskConnector });
   }, [connectors, connect]);
 
-  const disconnectWallet = useCallback(() => {
-    disconnect();
-    setProvider(null);
-    setSigner(null);
-    setContract(null);
-    setCurrentPhase(0);
-    setTotalMinted("0");
-    setBlockNumber(0);
-    setLaunchBlock(0);
-    setUserContributions("0");
-    setTotalContributions("0");
-    setErrorMessage(null);
-    setIsLoading(false);
-    setMintablePhases([]);
-    setNextPhaseBlocks(0);
-    setEstimatedReward("0");
-    setPhaseContributions(Array(PHASES.length).fill("0"));
-    setParticipantsCount(0);
-    setTotalParticipants(0);
-    setTokensMintedThisPhase("N/A");
-    setHistoricalData([]);
-    setCurrentPhaseContributions("0");
-    setUserCurrentPhaseContributions("0");
-    setTotalTokensThisPhase(PHASES[0].amount);
-    setPhaseEndBlock(0);
-    setPhaseParticipants([]);
-    setTotalParticipantsData([]);
-  }, [disconnect]);
-
-  const fetchContractData = useCallback(async (contractInstance: ethers.Contract, prov: ethers.BrowserProvider, user: string) => {
+  const fetchPublicContractData = useCallback(async () => {
+    if (!publicProvider) return;
+    const publicContract = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, publicProvider);
     try {
-      const phase = Number(await contractInstance.getCurrentPhase()) || 0;
-      const minted = await contractInstance.totalSupply();
-      const block = await prov.getBlockNumber();
-      const launch = Number(await contractInstance.launchBlock()) || 0;
+      const phase = Number(await publicContract.getCurrentPhase()) || 0;
+      const minted = await publicContract.totalSupply();
+      const block = await publicProvider.getBlockNumber();
+      const launch = Number(await publicContract.launchBlock()) || 0;
+      const isLaunchComplete = block >= launch + TOTAL_BLOCKS;
 
-      let aggregatedUserContrib = BigInt(0);
       let aggregatedTotalContrib = BigInt(0);
-      const mintable: number[] = [];
-      const phaseContribs = Array(PHASES.length).fill("0");
-      const historical: HistoricalData[] = [];
+      const phaseContributions = Array(PHASES.length).fill("0");
       const phaseParticipantsData: PieData[] = [];
+      const historicalPhaseParticipants: PieData[][] = Array(PHASES.length).fill([]);
+      const historicalPhaseProgress: { phase: number; progress: number; blocksPassed: number; totalBlocks: number }[] = [];
       const allContributors: Map<string, PieData> = new Map();
+      const historical: HistoricalData[] = [];
 
       for (let i = 0; i < PHASES.length; i++) {
-        const userContrib = await contractInstance.contributions(i, user);
-        const totalContrib = await contractInstance.totalContributions(i);
-        const hasMinted = await contractInstance.hasMinted(i, user);
-        const phaseEnd = i === 0 ? launch + 200 : i >= PHASES.length - 1 ? launch + 1337 : launch + 200 + i * 100;
-
-        if (userContrib > 0 && block > phaseEnd && !hasMinted) mintable.push(i);
-        aggregatedUserContrib += userContrib;
+        const totalContrib = await publicContract.totalContributions(i);
         aggregatedTotalContrib += totalContrib;
-        phaseContribs[i] = ethers.formatEther(userContrib);
+        phaseContributions[i] = "0";
 
-        const contributors = await contractInstance.getPhaseContributors(i);
+        const contributors = await publicContract.getPhaseContributors(i);
+        const phaseParticipants: PieData[] = [];
         contributors.forEach((addr: string) => {
           if (!allContributors.has(addr)) {
             allContributors.set(addr, { name: `${addr.slice(0, 6)}...`, value: 0, address: addr, tokens: 0 });
           }
         });
 
-        historical.push({
-          phase: i.toString(), // Keep as numeric for internal use, transform in charts
-          contributions: parseFloat(ethers.formatEther(totalContrib)),
-          minted: hasMinted ? parseFloat(PHASES[i].amount) : 0,
-        });
-
         for (const addr of contributors) {
-          const contrib = await contractInstance.contributions(i, addr);
+          const contrib = await publicContract.contributions(i, addr);
           if (contrib > BigInt(0)) {
             const userShare = parseFloat(ethers.formatEther(contrib));
             const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
-            const tokenShare = totalPhaseContrib > 0 && !hasMinted ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount) : 0;
+            const tokenShare =
+              totalPhaseContrib > 0 && (i < phase || block > (launch + PHASES[i].end))
+                ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount)
+                : 0;
             const existing = allContributors.get(addr)!;
             existing.value += userShare;
-            existing.tokens = (existing.tokens || 0) + tokenShare; // Accumulate tokens across phases
-          }
-        }
+            existing.tokens = (existing.tokens || 0) + tokenShare;
 
-        if (i === phase) {
-          for (const addr of contributors) {
-            const contrib = await contractInstance.contributions(phase, addr);
-            if (contrib > BigInt(0)) {
-              const userShare = parseFloat(ethers.formatEther(contrib));
-              const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
-              const tokenShare = totalPhaseContrib > 0 ? (userShare / totalPhaseContrib) * parseFloat(PHASES[phase].amount) : 0;
+            if (i === phase && !isLaunchComplete) {
+              const phaseTokenShare = totalPhaseContrib > 0 ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount) : 0;
               phaseParticipantsData.push({
+                name: `${addr.slice(0, 6)}...`,
+                value: userShare,
+                address: addr,
+                tokens: phaseTokenShare,
+              });
+            } else if (block > (launch + PHASES[i].end)) {
+              phaseParticipants.push({
                 name: `${addr.slice(0, 6)}...`,
                 value: userShare,
                 address: addr,
@@ -971,266 +597,721 @@ export default function Home() {
             }
           }
         }
+        historicalPhaseParticipants[i] = phaseParticipants;
+        const phaseStart = launch + PHASES[i].start;
+        const phaseEnd = launch + PHASES[i].end;
+        const blocksInPhase = phaseEnd - phaseStart;
+        const blocksPassed = Math.min(Math.max(0, block - phaseStart), blocksInPhase);
+        const progress = blocksInPhase > 0 ? (blocksPassed / blocksInPhase) * 100 : 0;
+        historicalPhaseProgress.push({ phase: i, progress, blocksPassed, totalBlocks: blocksInPhase });
+
+        historical.push({
+          phase: i.toString(),
+          contributions: parseFloat(ethers.formatEther(totalContrib)),
+          minted: 0,
+        });
       }
 
-      const currentPhaseUserContrib = await contractInstance.contributions(phase, user);
-      const currentPhaseTotalContrib = await contractInstance.totalContributions(phase);
-      const estimatedRewardStr =
-        currentPhaseUserContrib > BigInt(0) && currentPhaseTotalContrib > BigInt(0)
-          ? ethers.formatEther(
-              (currentPhaseUserContrib * BigInt(PHASES[phase].amount) * BigInt(10 ** 18)) /
-                currentPhaseTotalContrib
-            )
-          : "0";
-
-      const phaseEnd = phase === 0 ? launch + 200 : phase >= PHASES.length - 1 ? launch + 1337 : launch + 200 + phase * 100;
-
-      setUserContributions(ethers.formatEther(aggregatedUserContrib));
-      setTotalContributions(ethers.formatEther(aggregatedTotalContrib));
-      setCurrentPhase(phase);
-      setTotalMinted(ethers.formatEther(minted));
-      setBlockNumber(block);
-      setLaunchBlock(launch);
-      setNextPhaseBlocks(phaseEnd - block);
-      setMintablePhases(mintable);
-      setPhaseContributions(phaseContribs);
-      setEstimatedReward(estimatedRewardStr);
-      setParticipantsCount(phaseParticipantsData.length);
-      setTotalParticipants(allContributors.size);
-      setTokensMintedThisPhase("N/A");
-      setHistoricalData(historical);
-      setCurrentPhaseContributions(ethers.formatEther(currentPhaseTotalContrib));
-      setUserCurrentPhaseContributions(ethers.formatEther(currentPhaseUserContrib));
-      setTotalTokensThisPhase(PHASES[phase].amount);
-      setPhaseEndBlock(phaseEnd);
-      setPhaseParticipants(phaseParticipantsData);
-      setTotalParticipantsData(Array.from(allContributors.values()));
+      setContractData({
+        currentPhase: isLaunchComplete ? PHASES.length - 1 : phase,
+        totalMinted: ethers.formatEther(minted),
+        blockNumber: block,
+        launchBlock: launch,
+        userContributions: "0",
+        totalContributions: ethers.formatEther(aggregatedTotalContrib),
+        mintablePhases: [],
+        mintedPhases: [],
+        estimatedReward: "0",
+        phaseContributions,
+        participantsCount: phaseParticipantsData.length,
+        totalParticipants: allContributors.size,
+        currentPhaseContributions: ethers.formatEther(await publicContract.totalContributions(phase)),
+        userCurrentPhaseContributions: "0",
+        totalTokensThisPhase: PHASES[phase].amount,
+        phaseParticipants: phaseParticipantsData,
+        totalParticipantsData: Array.from(allContributors.values()).filter(d => d.value > 0),
+        pendingPhaseParticipants: account ? getPendingContributions(account) : [],
+        historicalData: historical,
+        historicalPhaseParticipants,
+        historicalPhaseProgress,
+        isLaunchComplete,
+      });
+      if (errorMessage === "Error fetching public blockchain data.") setErrorMessage(null);
     } catch (error) {
-      console.error("Failed to fetch contract data:", error);
-      setErrorMessage("Error fetching blockchain data.");
+      console.error("Failed to fetch public contract data:", error);
+      setErrorMessage("Error fetching public blockchain data. Please try refreshing.");
     }
-  }, []);
+  }, [activeNetwork, publicProvider, account, errorMessage]);
 
-  const initProvider = useCallback(async () => {
-    if (isConnected && walletClient && account) {
-      setIsLoading(true);
-      try {
-        switchChain({ chainId: activeNetwork });
-        const provider = new ethers.BrowserProvider(walletClient);
-        const signer = await provider.getSigner();
-        const contractInstance = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, signer);
-        setProvider(provider);
-        setSigner(signer);
-        setContract(contractInstance);
-        await fetchContractData(contractInstance, provider, account);
-      } catch (error) {
-        console.error("Initialization failed:", error);
-        setErrorMessage("Failed to connect to blockchain.");
-      } finally {
-        setIsLoading(false);
+  const fetchUserContractData = useCallback(async () => {
+    if (!contract || !provider || !account) return;
+    try {
+      const phase = Number(await contract.getCurrentPhase()) || 0;
+      const minted = await contract.totalSupply();
+      const block = await provider.getBlockNumber();
+      const launch = Number(await contract.launchBlock()) || 0;
+      const isLaunchComplete = block >= launch + TOTAL_BLOCKS;
+
+      let aggregatedUserContrib = BigInt(0);
+      let aggregatedTotalContrib = BigInt(0);
+      const mintable: number[] = [];
+      const mintedPhases: number[] = [];
+      const phaseContributions = Array(PHASES.length).fill("0");
+      const phaseParticipantsData: PieData[] = [];
+      const historicalPhaseParticipants: PieData[][] = Array(PHASES.length).fill([]);
+      const historicalPhaseProgress: { phase: number; progress: number; blocksPassed: number; totalBlocks: number }[] = [];
+      const allContributors: Map<string, PieData> = new Map();
+      const historical: HistoricalData[] = [];
+
+      for (let i = 0; i < PHASES.length; i++) {
+        const userContrib = await contract.contributions(i, account);
+        const totalContrib = await contract.totalContributions(i);
+        const hasMintedPhase = await contract.hasMinted(i, account);
+        const phaseStart = launch + PHASES[i].start;
+        const phaseEnd = launch + PHASES[i].end;
+        const blocksInPhase = phaseEnd - phaseStart;
+        const blocksPassed = Math.min(Math.max(0, block - phaseStart), blocksInPhase);
+        const progress = blocksInPhase > 0 ? (blocksPassed / blocksInPhase) * 100 : 0;
+
+        if (userContrib > 0 && block > phaseEnd && !hasMintedPhase) mintable.push(i);
+        if (userContrib > 0 && hasMintedPhase) mintedPhases.push(i);
+        aggregatedUserContrib += userContrib;
+        aggregatedTotalContrib += totalContrib;
+        phaseContributions[i] = ethers.formatEther(userContrib);
+
+        const contributors = await contract.getPhaseContributors(i);
+        const phaseParticipants: PieData[] = [];
+        contributors.forEach((addr: string) => {
+          if (!allContributors.has(addr)) {
+            allContributors.set(addr, { name: `${addr.slice(0, 6)}...`, value: 0, address: addr, tokens: 0 });
+          }
+        });
+
+        for (const addr of contributors) {
+          const contrib = await contract.contributions(i, addr);
+          if (contrib > BigInt(0)) {
+            const userShare = parseFloat(ethers.formatEther(contrib));
+            const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
+            const tokenShare =
+              totalPhaseContrib > 0 && (hasMintedPhase || (i < phase && block > phaseEnd))
+                ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount)
+                : 0;
+            const existing = allContributors.get(addr)!;
+            existing.value += userShare;
+            existing.tokens = (existing.tokens || 0) + tokenShare;
+
+            if (i === phase && !isLaunchComplete) {
+              const phaseTokenShare = totalPhaseContrib > 0 ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount) : 0;
+              phaseParticipantsData.push({
+                name: `${addr.slice(0, 6)}...`,
+                value: userShare,
+                address: addr,
+                tokens: phaseTokenShare,
+              });
+            } else if (block > phaseEnd) {
+              phaseParticipants.push({
+                name: `${addr.slice(0, 6)}...`,
+                value: userShare,
+                address: addr,
+                tokens: tokenShare,
+              });
+            }
+          }
+        }
+        historicalPhaseParticipants[i] = phaseParticipants;
+        historicalPhaseProgress.push({ phase: i, progress, blocksPassed, totalBlocks: blocksInPhase });
+
+        historical.push({
+          phase: i.toString(),
+          contributions: parseFloat(ethers.formatEther(totalContrib)),
+          minted: hasMintedPhase && userContrib > 0 ? (parseFloat(ethers.formatEther(userContrib)) / parseFloat(ethers.formatEther(totalContrib))) * parseFloat(PHASES[i].amount) : 0,
+        });
       }
+
+      const currentPhaseUserContrib = await contract.contributions(phase, account);
+      const currentPhaseTotalContrib = await contract.totalContributions(phase);
+      const totalTokensThisPhase = parseFloat(PHASES[phase].amount);
+
+      const storedPending = getPendingContributions(account);
+      const updatedPending = storedPending.filter((p) => {
+        const phaseIndex = p.phase || 0;
+        const phaseEnd = launch + PHASES[phaseIndex].end;
+        const isPhaseActive = block <= phaseEnd;
+        return isPhaseActive && p.value > 0;
+      });
+
+      const currentPhasePending = updatedPending.filter(p => p.phase === phase);
+      const totalPendingContrib = currentPhasePending.reduce((sum, p) => sum + p.value, 0);
+      const totalPhaseContrib = parseFloat(ethers.formatEther(currentPhaseTotalContrib));
+      const totalPhaseContribWithPending = totalPhaseContrib + totalPendingContrib;
+      const totalUserContrib = parseFloat(ethers.formatEther(currentPhaseUserContrib)) + totalPendingContrib;
+
+      const updatedEstimatedReward = totalPhaseContribWithPending > 0
+        ? (totalUserContrib / totalPhaseContribWithPending) * totalTokensThisPhase
+        : 0;
+
+      if (currentPhasePending.length > 0) {
+        const aggregatedPending: PieData = {
+          name: `${account.slice(0, 6)}...`,
+          value: totalPendingContrib,
+          address: account,
+          tokens: updatedEstimatedReward,
+          isPending: true,
+          phase,
+          txHash: currentPhasePending.map(p => p.txHash).join(","),
+        };
+        updatedPending.splice(0, updatedPending.length, ...updatedPending.filter(p => p.phase !== phase), aggregatedPending);
+      }
+
+      const updatedPhaseParticipants = phaseParticipantsData.map(p => {
+        if (p.address === account) {
+          return { ...p, value: totalUserContrib, tokens: updatedEstimatedReward };
+        }
+        return p;
+      });
+      if (!updatedPhaseParticipants.some(p => p.address === account) && totalPendingContrib > 0) {
+        updatedPhaseParticipants.push({
+          name: `${account.slice(0, 6)}...`,
+          value: totalUserContrib,
+          address: account,
+          tokens: updatedEstimatedReward,
+          isPending: true,
+          phase,
+        });
+      }
+
+      setContractData({
+        currentPhase: isLaunchComplete ? PHASES.length - 1 : phase,
+        totalMinted: ethers.formatEther(minted),
+        blockNumber: block,
+        launchBlock: launch,
+        userContributions: ethers.formatEther(aggregatedUserContrib),
+        totalContributions: ethers.formatEther(aggregatedTotalContrib),
+        mintablePhases: mintable,
+        mintedPhases,
+        estimatedReward: updatedEstimatedReward.toString(),
+        phaseContributions,
+        participantsCount: updatedPhaseParticipants.length,
+        totalParticipants: allContributors.size,
+        currentPhaseContributions: ethers.formatEther(currentPhaseTotalContrib),
+        userCurrentPhaseContributions: ethers.formatEther(currentPhaseUserContrib),
+        totalTokensThisPhase: PHASES[phase].amount,
+        phaseParticipants: updatedPhaseParticipants,
+        totalParticipantsData: Array.from(allContributors.values()).filter(d => d.value > 0),
+        pendingPhaseParticipants: updatedPending,
+        historicalData: historical,
+        historicalPhaseParticipants,
+        historicalPhaseProgress,
+        isLaunchComplete,
+      });
+      setPendingContributions(account, updatedPending);
+      if (errorMessage === "Error fetching user blockchain data.") setErrorMessage(null);
+    } catch (error) {
+      console.error("Failed to fetch user contract data:", error);
+      setErrorMessage("Error fetching user blockchain data. Please try refreshing.");
     }
-  }, [isConnected, walletClient, account, activeNetwork, switchChain, fetchContractData]);
+  }, [contract, provider, account, errorMessage]);
 
-  useEffect(() => {
-    initProvider();
-  }, [initProvider]);
-
-  const sendEth = useCallback(() => {
-    if (!isConnected || !signer) return alert("Please connect your wallet!");
+  const sendEth = useCallback(async () => {
+    if (!isConnected || !signer || !account || !contract || contractData.isLaunchComplete) {
+      alert(contractData.isLaunchComplete ? "Launch is complete, no more contributions accepted." : "Please connect your wallet!");
+      return;
+    }
     if (parseFloat(ethAmount) < parseFloat(MINIMUM_ETH)) {
       setErrorMessage("Minimum contribution is 0.001 ETH.");
       return;
     }
-    setErrorMessage(null);
-    sendTransaction({
-      to: CONTRACT_ADDRESSES[activeNetwork] as `0x${string}`,
-      value: parseEther(ethAmount),
-      chainId: activeNetwork,
-    });
-  }, [isConnected, signer, ethAmount, activeNetwork, sendTransaction]);
-
-  const mintTokens = useCallback(async (phase: number) => {
-    if (!contract || !account) return alert("Please connect your wallet!");
+    setIsSending(true);
     try {
-      setIsLoading(true);
-      const userPhaseContrib = await contract.contributions(phase, account);
-      if (userPhaseContrib === BigInt(0)) return alert("No contributions for this phase!");
-      if (await contract.hasMinted(phase, account)) return alert("Already minted for this phase!");
-      const tx = await contract.mintUserShare(phase, {
-        gasLimit: BASE_GAS_LIMIT, // Match single mint gas limit
+      const txData = contract.interface.encodeFunctionData("contribute", [contractData.currentPhase]);
+      await sendTransaction({
+        to: CONTRACT_ADDRESSES[activeNetwork] as `0x${string}`,
+        value: parseEther(ethAmount),
+        chainId: activeNetwork,
+        data: txData as `0x${string}`,
       });
-      await tx.wait();
-      alert(`Minted tokens from Phase ${phase}!`);
-      await fetchContractData(contract, provider!, account);
-    } catch (error: unknown) {
-      console.error("Minting failed:", error);
-      // Type guard to check if error is an Error object
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      alert(`Minting failed: ${errorMessage}`);
-    } finally {
-      setIsLoading(false);
+    } catch (error) {
+      console.error("Send ETH failed:", error);
+      setErrorMessage(`Transaction failed: ${(error as Error).message}`);
+      setIsSending(false);
     }
-  }, [contract, account, provider, fetchContractData]);
+  }, [isConnected, signer, account, ethAmount, activeNetwork, sendTransaction, contract, contractData.isLaunchComplete, contractData.currentPhase]);
 
-  const multiMint = useCallback(async () => {
-    if (!contract || !account) {
-      alert("Please connect your wallet!");
-      return;
-    }
-    if (mintablePhases.length === 0) {
-      alert("No eligible phases to mint!");
-      return;
-    }
-    console.log("Starting multiMint with phases:", mintablePhases);
-    try {
+  const mintTokens = useCallback(
+    async (phase: number) => {
+      if (!contract || !account) return alert("Please connect your wallet!");
+      setIsMinting(prev => new Map(prev).set(phase, true));
       setIsLoading(true);
-      // Process each phase individually to match single mint cost
-      for (const phase of mintablePhases) {
-        console.log("Processing phase:", phase);
-        const tx = await contract.mintUserShare(phase, {
-          gasLimit: BASE_GAS_LIMIT, // Use same gas limit as single mint
-        });
-        console.log("Transaction sent for phase:", tx.hash);
+      try {
+        const tx = await contract.mintUserShare(phase, { gasLimit: BASE_GAS_LIMIT });
         await tx.wait();
-        console.log("Phase transaction confirmed");
+        await fetchUserContractData();
+      } catch (error) {
+        console.error("Minting failed:", error);
+        alert(`Minting failed: ${(error as Error).message}`);
+      } finally {
+        setIsMinting(prev => new Map(prev).set(phase, false));
+        setIsLoading(false);
       }
-      alert(`Minted tokens for all eligible phases: ${mintablePhases.join(", ")}`);
-      await fetchContractData(contract, provider!, account);
-    } catch (error: unknown) {
-      console.error("Multi-minting failed:", error);
-      // Type guard to check if error is an Error object
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      alert(`Multi-minting failed: ${errorMessage}`);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [contract, account, mintablePhases, provider, fetchContractData]);
-
-  useEffect(() => {
-    if (isSuccess && txData) {
-      alert(`Transaction successful! Hash: ${txData}`);
-      if (contract && provider && account) fetchContractData(contract, provider, account);
-    }
-    if (isError && txError) {
-      console.error("Transaction failed:", txError);
-      alert(`Transaction failed: ${txError.message || "Unknown error"}`);
-    }
-  }, [isSuccess, isError, txData, txError, contract, provider, account, fetchContractData]);
-
-  useEffect(() => {
-    if (contract && provider && account && !isLoading) {
-      fetchContractData(contract, provider, account);
-      const interval = setInterval(() => fetchContractData(contract, provider, account), 5000);
-      return () => clearInterval(interval);
-    }
-  }, [contract, provider, account, isLoading, fetchContractData]);
-
-  const pieData = useMemo(() => 
-    phaseContributions.map((contrib, index) => ({ name: `Phase ${index}`, value: parseFloat(contrib) })).filter(item => item.value > 0),
-    [phaseContributions]
+    },
+    [contract, account, fetchUserContractData]
   );
 
-  const handleSetActiveNetwork = useCallback((networkId: number) => {
-    setActiveNetwork(networkId as ChainId);
+  const multiMint = useCallback(async () => {
+    if (!contract || !account || contractData.mintablePhases.length === 0) return;
+    setIsMinting(prev => new Map(prev).set(-1, true));
+    setIsLoading(true);
+    try {
+      const tx = await contract.mintMultipleUserShares({ gasLimit: BASE_GAS_LIMIT * PHASES.length });
+      await tx.wait();
+      await fetchUserContractData();
+    } catch (error) {
+      console.error("Multi-minting failed:", error);
+      alert(`Multi-minting failed: ${(error as Error).message}`);
+    } finally {
+      setIsMinting(prev => new Map(prev).set(-1, false));
+      setIsLoading(false);
+    }
+  }, [contract, account, contractData.mintablePhases, fetchUserContractData]);
+
+  useEffect(() => {
+    if (chainId && (chainId === sepolia.id || chainId === mainnet.id)) setActiveNetwork(chainId as ChainId);
+  }, [chainId]);
+
+  useEffect(() => {
+    if (!walletClient) return; // Ensure initialization only happens client-side with wallet
+    if (isConnected && account) {
+      setIsLoading(true);
+      const init = async () => {
+        switchChain({ chainId: activeNetwork });
+        const providerInstance = new ethers.BrowserProvider(walletClient);
+        const signerInstance = await providerInstance.getSigner();
+        const contractInstance = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, signerInstance);
+        setProvider(providerInstance);
+        setSigner(signerInstance);
+        setContract(contractInstance);
+        await fetchUserContractData();
+        setIsLoading(false);
+      };
+      init();
+    } else if (publicProvider) {
+      setIsLoading(true);
+      fetchPublicContractData().then(() => setIsLoading(false));
+    }
+  }, [isConnected, walletClient, account, activeNetwork, switchChain, fetchUserContractData, fetchPublicContractData, publicProvider]);
+
+  useEffect(() => {
+    if (isSuccess && txData && contract && provider && account && txData !== lastTxHash) {
+      const newContribution = parseFloat(ethAmount);
+      const totalPhaseContrib = parseFloat(contractData.currentPhaseContributions) || 0;
+      const totalTokensThisPhase = parseFloat(contractData.totalTokensThisPhase);
+      const totalPendingContrib = contractData.pendingPhaseParticipants
+        .filter(p => p.phase === contractData.currentPhase)
+        .reduce((sum, p) => sum + p.value, 0);
+      const totalPhaseContribWithPending = totalPhaseContrib + totalPendingContrib + newContribution;
+      const totalUserContrib = parseFloat(contractData.userCurrentPhaseContributions) + totalPendingContrib + newContribution;
+      const estimatedReward = totalPhaseContribWithPending > 0
+        ? (totalUserContrib / totalPhaseContribWithPending) * totalTokensThisPhase
+        : 0;
+
+      const tempParticipant: PieData = {
+        name: `${account.slice(0, 6)}...`,
+        value: newContribution,
+        address: account,
+        tokens: estimatedReward,
+        isPending: true,
+        phase: contractData.currentPhase,
+        txHash: txData,
+      };
+
+      setContractData((prev) => {
+        const existingPending = prev.pendingPhaseParticipants.filter(p => p.phase !== contractData.currentPhase);
+        const currentPhasePending = prev.pendingPhaseParticipants.filter(p => p.phase === contractData.currentPhase);
+        const updatedPending = [...existingPending, ...currentPhasePending, tempParticipant];
+        setPendingContributions(account, updatedPending);
+
+        const updatedPhaseParticipants = prev.phaseParticipants.map(p => {
+          if (p.address === account) {
+            return { ...p, value: totalUserContrib, tokens: estimatedReward, isPending: true };
+          }
+          return p;
+        });
+        if (!updatedPhaseParticipants.some(p => p.address === account)) {
+          updatedPhaseParticipants.push({
+            name: `${account.slice(0, 6)}...`,
+            value: totalUserContrib,
+            address: account,
+            tokens: estimatedReward,
+            isPending: true,
+            phase: contractData.currentPhase,
+          });
+        }
+
+        return {
+          ...prev,
+          pendingPhaseParticipants: updatedPending,
+          phaseParticipants: updatedPhaseParticipants,
+          estimatedReward: estimatedReward.toString(),
+          participantsCount: updatedPhaseParticipants.length,
+        };
+      });
+
+      setLastTxHash(txData);
+      setIsSending(false);
+      setErrorMessage(null);
+
+      setTimeout(fetchUserContractData, 5000);
+    } else if (txError) {
+      setIsSending(false);
+      setErrorMessage(`Transaction failed: ${txError.message || "Unknown error"}`);
+    }
+  }, [isSuccess, txError, txData, contract, provider, account, ethAmount, contractData, fetchUserContractData, lastTxHash]);
+
+  useEffect(() => {
+    if (isConnected && !contractData.isLaunchComplete) {
+      const interval = setInterval(() => {
+        fetchUserContractData();
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [isConnected, contractData.isLaunchComplete, fetchUserContractData]);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
   }, []);
 
+  if (!mounted) {
+    // render a safe placeholder that matches server-side output
+    return <div className="min-h-screen bg-gray-900 text-white" />;
+  }
+
+  if (typeof window === "undefined") {
+    return null; // Prevent SSR rendering entirely
+  }
+  
+
   return (
-    <div className="text-white">
-      <style>{globalStyles}</style>
+    <div className="min-h-screen bg-gray-900 text-white overflow-x-hidden">
       <Navbar
         account={account}
         provider={provider}
         connectWallet={connectWallet}
-        disconnectWallet={disconnectWallet}
+        disconnectWallet={disconnect}
         activeNetwork={activeNetwork}
-        setActiveNetwork={handleSetActiveNetwork}
+        setActiveNetwork={(id: number) => setActiveNetwork(id as ChainId)}
       />
-      <div className="container mx-auto p-4 sm:p-6">
+      <div className="container mx-auto px-4 py-8 md:py-12">
         <motion.header
-          className="text-center mb-6 sm:mb-8"
-          initial={{ opacity: 0, y: -20 }}
+          className="text-center mb-12"
+          initial={{ opacity: 0, y: -50 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: 0.7 }}
         >
-          <FaEthereum className="text-indigo-400 text-3xl sm:text-4xl mx-auto animate-pulse" />
-          <h1 className="text-lg sm:text-2xl font-extrabold mt-2 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-500">
+          <FaEthereum className="text-indigo-400 text-5xl mx-auto animate-bounce" />
+          <h1 className="text-4xl md:text-5xl font-extrabold mt-4 bg-gradient-to-r from-indigo-400 via-purple-500 to-pink-500 bg-clip-text text-transparent">
             MrManMan (MMM) Token
           </h1>
-          <p className="text-xs sm:text-sm text-gray-300 mt-1">Advanced Token Management Dashboard</p>
+          <p className="mt-2 text-gray-300 text-lg">Participate in a decentralized ecosystem</p>
         </motion.header>
 
-        {isLoading ? (
-          <div className="text-center text-gray-400 text-sm">Loading blockchain data...</div>
-        ) : errorMessage ? (
-          <div className="text-center text-red-400 text-sm">{errorMessage}</div>
-        ) : (
-          <>
+        {contractData.isLaunchComplete && (
+          <div className="mb-12">
+            <h2 className="text-3xl font-bold text-white mb-8">Launch History</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {contractData.historicalPhaseProgress.map((p) => (
+                <HistoricalPhaseCard
+                  key={p.phase}
+                  phase={p.phase}
+                  progress={p.progress}
+                  blocksPassed={p.blocksPassed}
+                  totalBlocks={p.totalBlocks}
+                  totalTokens={PHASES[p.phase].amount}
+                  participants={contractData.historicalPhaseParticipants[p.phase]}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="space-y-8">
             <motion.div
-              className="mb-6 sm:mb-8"
-              initial={{ opacity: 0, y: 20 }}
+              className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+              initial={{ opacity: 0, x: -50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <h2 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center">
+                <FaEthereum className="mr-2" /> Participate
+              </h2>
+              <input
+                type="number"
+                value={ethAmount}
+                onChange={(e) => setEthAmount(e.target.value)}
+                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 transition-all"
+                step="0.01"
+                min="0.001"
+                placeholder="Enter ETH amount (min 0.001)"
+                disabled={!isConnected || isSending || contractData.isLaunchComplete}
+              />
+              {errorMessage && (
+                <p className={`text-sm mt-2 ${errorMessage.includes("accepted") ? "text-green-400" : "text-red-400"}`}>
+                  {errorMessage}
+                </p>
+              )}
+              <button
+                onClick={sendEth}
+                disabled={!isConnected || isSending || contractData.isLaunchComplete}
+                className="mt-4 w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:bg-gray-600 transition-all font-semibold"
+              >
+                {isSending ? "Processing..." : "Send ETH"}
+              </button>
+              {isConnected && contractData.pendingPhaseParticipants.length > 0 && (
+                <div className="mt-4 text-sm">
+                  <p className="text-gray-300 font-semibold">Pending Contributions:</p>
+                  {contractData.pendingPhaseParticipants.map((p, index) => (
+                    <div key={p.txHash || index} className="mt-2">
+                      <p>{p.address?.slice(0, 6)}...{p.address?.slice(-4)}</p>
+                      <p>Contribution: <ToggleDecimals value={p.value.toString()} /> ETH</p>
+                      <p>
+                        Estimated Reward: <ToggleDecimals value={p.tokens!.toString()} /> MMM
+                        {p.isPending && " (Pending)"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!isConnected && (
+                <p className="mt-4 text-gray-400 text-sm">Connect wallet to participate.</p>
+              )}
+            </motion.div>
+
+            {isConnected && (
+              <motion.div
+                className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+                initial={{ opacity: 0, x: -50 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+              >
+                <h2 className="text-2xl font-bold text-yellow-400 mb-4 flex items-center">
+                  <FaCoins className="mr-2" /> Mint Tokens
+                </h2>
+                {contractData.mintablePhases.length === 0 && contractData.mintedPhases.length === 0 ? (
+                  <p className="text-gray-400">No phases ready for minting or previously minted.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {contractData.mintablePhases.length > 0 && (
+                      <>
+                        <p className="text-gray-300 text-sm">Available to Mint (Total: {abbreviateNumber(totalMintableTokens)} MMM):</p>
+                        {contractData.mintablePhases.map((phase) => {
+                          const userContrib = parseFloat(contractData.phaseContributions[phase]);
+                          const totalContrib = contractData.historicalData[phase]?.contributions || 1;
+                          const phaseTokens = parseFloat(PHASES[phase].amount);
+                          const mintableAmount = (userContrib / totalContrib) * phaseTokens;
+                          const isPhaseMinting = isMinting.get(phase) || false;
+                          return (
+                            <button
+                              key={phase}
+                              onClick={() => mintTokens(phase)}
+                              disabled={isLoading && (isMinting.get(phase) || isMinting.get(-1))}
+                              className="w-full py-2 bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-600 transition-all font-medium"
+                            >
+                              {isPhaseMinting
+                                ? "Minting..."
+                                : `Mint Phase ${phase} (${abbreviateNumber(mintableAmount)} MMM)`}
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={multiMint}
+                          disabled={isLoading}
+                          className="w-full py-2 bg-purple-600 rounded-lg hover:bg-purple-700 disabled:bg-gray-600 transition-all font-medium"
+                        >
+                          {isMinting.get(-1) ? "Minting All..." : `Mint All (${abbreviateNumber(totalMintableTokens)} MMM)`}
+                        </button>
+                      </>
+                    )}
+                    {contractData.mintedPhases.length > 0 && (
+                      <>
+                        <p className="text-gray-300 text-sm mt-4">Previously Minted:</p>
+                        {contractData.mintedPhases.map((phase) => (
+                          <p key={phase} className="text-gray-400 text-sm">
+                            Phase {phase} - Minted {abbreviateNumber((parseFloat(contractData.phaseContributions[phase]) / contractData.historicalData[phase].contributions) * parseFloat(PHASES[phase].amount))} MMM
+                          </p>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </div>
+
+          <div className="space-y-8">
+            <motion.div
+              className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+              initial={{ opacity: 0, y: 50 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <PhaseProgress
-                  progress={launchPhaseProgress}
-                  blocksSinceLaunch={blocksSinceLaunch}
-                  estimatedReward={estimatedReward}
-                  totalTokensThisPhase={totalTokensThisPhase}
-                  remainingBlocks={nextPhaseBlocks}
-                  phaseEndBlock={phaseEndBlock}
-                  currentPhase={currentPhase}
-                  userCurrentPhaseContributions={userCurrentPhaseContributions}
-                  participantsCount={participantsCount}
-                  currentPhaseContributions={currentPhaseContributions}
-                  userParticipated={userParticipated} // Pass userParticipated as a prop
-                />
-                {participantsCount > 0 && (
-                  <PhaseParticipantsPieChart phaseData={phaseParticipants} totalTokens={totalTokensThisPhase} currentPhase={currentPhase} />
-                )}
+              <h2 className="text-2xl font-bold text-indigo-400 mb-4">
+                {contractData.isLaunchComplete ? "Launch Complete" : `Phase ${contractData.currentPhase} Progress`}
+              </h2>
+              {contractData.isLaunchComplete ? (
+                <p className="text-gray-300">The token launch has concluded after {blocksSinceLaunch} blocks.</p>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm text-gray-300">
+                      Total Progress: {Math.round(launchPhaseProgress)}% ({blocksSinceLaunch} / {TOTAL_BLOCKS} blocks)
+                    </p>
+                    <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
+                      <motion.div
+                        className="bg-indigo-500 h-full rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${launchPhaseProgress}%` }}
+                        transition={{ duration: 1 }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-300">Phase Progress: {Math.round(launchPhaseEndProgress)}%</p>
+                    <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
+                      <motion.div
+                        className="bg-green-500 h-full rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${launchPhaseEndProgress}%` }}
+                        transition={{ duration: 1 }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>Total Tokens:</div>
+                    <div><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</div>
+                    {isConnected && userParticipated && (
+                      <>
+                        <div>Your Reward:</div>
+                        <div><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
+                        <div>Your Contribution:</div>
+                        <div><ToggleDecimals value={contractData.userCurrentPhaseContributions} /> ETH</div>
+                      </>
+                    )}
+                    <div>Participants:</div>
+                    <div>{contractData.participantsCount}</div>
+                    <div>Phase Start:</div>
+                    <div>{phaseStartBlock}</div>
+                    <div>Phase End:</div>
+                    <div>{phaseEndBlock}</div>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+
+            {!contractData.isLaunchComplete ? (
+              <PieChartCard
+                title="Participants"
+                icon={<FaUsers className="text-blue-400" />}
+                data={contractData.phaseParticipants}
+                totalTokens={contractData.totalTokensThisPhase}
+                currentPhase={contractData.currentPhase}
+              />
+            ) : (
+              <div className="gap-4 flex flex-col">
+                {contractData.historicalPhaseParticipants.slice(0, 3).map((participants, index) => (
+                  <PieChartCard
+                    key={index}
+                    title=""
+                    icon={<></>}
+                    data={participants}
+                    totalTokens={PHASES[index].amount}
+                    currentPhase={index}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-8">
+            <motion.div
+              className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <h2 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center">
+                <FaChartLine className="mr-2" /> Project Stats
+              </h2>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>Total Minted:</div>
+                <div><ToggleDecimals value={contractData.totalMinted} /> MMM</div>
+                <div>Total Contributions:</div>
+                <div><ToggleDecimals value={contractData.totalContributions} /> ETH</div>
+                <div>Total Participants:</div>
+                <div>{contractData.totalParticipants}</div>
+                <div>Phase Tokens:</div>
+                <div><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</div>
+                <div>Phase Contributions:</div>
+                <div><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</div>
+                <div>Phase Participants:</div>
+                <div>{contractData.participantsCount}</div>
               </div>
             </motion.div>
 
-            <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-6 mb-6 sm:mb-8">
-              <div className="lg:order-2">
-                <h2 className="text-lg sm:text-xl font-bold text-white mb-6 sm:mb-8">Your Participation</h2>
-                <div className="grid grid-cols-1 gap-4 sm:gap-6">
-                  {/* Personal Data (Cards and Charts) */}
-                  <ParticipateCard ethAmount={ethAmount} setEthAmount={setEthAmount} errorMessage={errorMessage} sendEth={sendEth} />
-                  <MintCard mintablePhases={mintablePhases} mintTokens={mintTokens} multiMint={multiMint} isLoading={isLoading} />
-                  <ParticipationCard 
-                    userContributions={userContributions} 
-                    participantsCount={participantsCount} 
-                    tokensMintedThisPhase={tokensMintedThisPhase} 
-                    phaseContributions={phaseContributions} 
-                  />
-                  <ParticipationPieChart data={pieData} />
-                  <MintedTokensChart data={historicalData} />
-                  <ContributionsChart data={historicalData} />
-                </div>
-              </div>
-              <div className="lg:order-3">
-                <h2 className="text-lg sm:text-xl font-bold text-white mb-6 sm:mb-8">Project Overview</h2>
-                <div className="grid grid-cols-1 gap-4 sm:gap-6">
-                  {/* Global/Informational Data */}
-                  <Stats
-                    globalStats={{ totalMinted, totalContributions, totalParticipants }}
-                    phaseStats={{
-                      currentPhase,
-                      currentPhaseContributions,
-                      currentPhaseParticipants: participantsCount,
-                      userCurrentPhaseContributions,
-                      currentPhaseTokens: totalTokensThisPhase,
-                      userParticipated,
-                    }}
-                  />
-                  <GlobalPieChart totalData={totalParticipantsData} totalMinted={totalMinted} />
-                  <MarketCapPieChart totalMinted={totalMinted} />
-                </div>
-              </div>
+            <PieChartCard
+              title="Global Contributions"
+              icon={<FaUsers className="text-blue-400" />}
+              data={contractData.totalParticipantsData}
+              totalTokens={contractData.totalMinted}
+            />
+
+            <PieChartCard
+              title="Supply Details"
+              icon={<FaCoins className="text-yellow-400" />}
+              data={[
+                { name: "Realized", value: parseFloat(contractData.totalMinted), tokens: parseFloat(contractData.totalMinted) },
+                { name: "Unrealized", value: TOTAL_SUPPLY - parseFloat(contractData.totalMinted), tokens: TOTAL_SUPPLY - parseFloat(contractData.totalMinted) },
+              ]}
+              totalTokens={TOTAL_SUPPLY.toString()}
+              colors={["#4f46e5", "#d1d5db"]}
+              extraText={`Total Minted: ${abbreviateNumber(parseFloat(contractData.totalMinted))} MMM`}
+            />
+          </div>
+        </div>
+
+        {isConnected && (
+          <div className="mt-12">
+            <h2 className="text-3xl font-bold text-white mb-8">Your History</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <PieChartCard
+                title="Your Contributions"
+                icon={<FaEthereum className="text-indigo-400" />}
+                data={pieData}
+                extraText={`Total Contributions: ${totalUserContributions.toFixed(4)} ETH`}
+              />
+              <MintedTokensChart data={contractData.historicalData} />
+              <ContributionsChart data={contractData.historicalData} />
             </div>
-          </>
+          </div>
+        )}
+
+        {!contractData.isLaunchComplete && (
+          <div className="mt-12">
+            <h2 className="text-3xl font-bold text-white mb-8">Historical Phases</h2>
+            {contractData.historicalPhaseProgress
+              .filter((p) => p.phase < contractData.currentPhase)
+              .map((p) => (
+                <HistoricalPhaseCard
+                  key={p.phase}
+                  phase={p.phase}
+                  progress={p.progress}
+                  blocksPassed={p.blocksPassed}
+                  totalBlocks={p.totalBlocks}
+                  totalTokens={PHASES[p.phase].amount}
+                  participants={contractData.historicalPhaseParticipants[p.phase]}
+                />
+              ))}
+          </div>
         )}
       </div>
     </div>

@@ -11,14 +11,14 @@ const queryClient = new QueryClient();
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900 to-black">
+      <body className="min-h-screen bg-gray-900 text-white">
         <WagmiProvider config={config}>
           <QueryClientProvider client={queryClient}>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
               {children}
             </motion.div>
-            <footer className="text-center text-gray-400 py-3 border-t border-gray-700">
-              <p className="text-xs sm:text-sm">MPM Token Dashboard v1.0 | Powered by NextJS</p>
+            <footer className="text-center text-gray-400 py-4 border-t border-gray-800 bg-gray-800">
+              <p className="text-sm">MPM Token Dashboard v1.0 | Powered by NextJS</p>
             </footer>
           </QueryClientProvider>
         </WagmiProvider>
