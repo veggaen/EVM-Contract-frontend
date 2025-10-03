@@ -28,7 +28,7 @@ const metadata = {
 // Create AppKit modal with wallets + socials + SIWX (guard against HMR double-inits)
 if (typeof window !== 'undefined' && !window.__APPKIT_INITIALIZED__) {
   createAppKit({
-    adapters: [wagmiAdapter],
+    adapters: [WagmiAdapter],
     projectId: `${process.env.NEXT_PUBLIC_PROJECT_ID}`,
     networks: [mainnet, sepolia, holesky],
     defaultNetwork: mainnet,
