@@ -6,14 +6,14 @@ import { FaEthereum, FaChartLine, FaCoins, FaUsers, FaChevronDown, FaChevronUp }
 import Navbar from "@/components/Navbar";
 import {
   useAccount,
-  useConnect,
   useDisconnect,
   useSwitchChain,
+  useConnect,
   useWalletClient,
   useSendTransaction,
   useChainId,
 } from "wagmi";
-import { sepolia, mainnet } from "wagmi/chains";
+import { sepolia, mainnet, holesky } from "wagmi/chains";
 import { parseEther } from "viem";
 import { CONTRACT_ADDRESSES } from "../lib/wagmi";
 import { PieChart, Pie, Sector, ResponsiveContainer, Cell, Legend, LineChart, Line, XAxis, Tooltip } from "recharts";
