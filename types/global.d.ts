@@ -6,3 +6,10 @@ interface Window {
       removeListener?: (eventName: string, callback: (...args: unknown[]) => void) => void;
     };
 }
+
+declare namespace JSX {
+  interface IntrinsicElements {
+    'appkit-button': unknown;
+    'w3m-button': unknown;
+  }
+}
