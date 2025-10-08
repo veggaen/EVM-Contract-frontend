@@ -1,6 +1,7 @@
+// app/page.tsx
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 import { FaEthereum, FaChartLine, FaCoins, FaUsers, FaChevronDown, FaChevronUp } from "react-icons/fa";
 import Navbar from "@/components/Navbar";
@@ -8,10 +9,8 @@ import {
   useAccount,
   useDisconnect,
   useSwitchChain,
-  useConnect,
   useWalletClient,
   useSendTransaction,
-  useChainId,
 } from "wagmi";
 import { sepolia, mainnet, holesky } from "wagmi/chains";
 import { parseEther } from "viem";
@@ -19,8 +18,9 @@ import { CONTRACT_ADDRESSES } from "../lib/wagmi";
 import { PieChart, Pie, Sector, ResponsiveContainer, Cell, Legend, LineChart, Line, XAxis, Tooltip } from "recharts";
 import { motion } from "framer-motion";
 
+
 // Types
-type ChainId = 1 | 11155111 | 369;
+type ChainId = 1 | 11155111 | 17000;
 interface PieData { name: string; value: number; address?: string; tokens?: number; isPending?: boolean; phase?: number; txHash?: string }
 interface HistoricalData { phase: string; contributions: number; minted: number }
 interface ActiveShapeProps {
@@ -36,12 +36,16 @@ interface ActiveShapeProps {
   percent: number;
   value: number;
 }
+type EIP1193Provider = { request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown> };
+
 
 // Constants
 const MINIMUM_ETH = "0.001";
 const TOTAL_BLOCKS = 1337;
 const TOTAL_SUPPLY = 1000000;
-const DYNAMIC_MINT_AMOUNT = TOTAL_SUPPLY * 0.75;
+const PRE_MINT_PERCENT = 0.25;
+
+const DYNAMIC_MINT_AMOUNT = TOTAL_SUPPLY * (1 - PRE_MINT_PERCENT);
 const MAX_PIE_SLICES = 5;
 const BASE_GAS_LIMIT = 100000;
 
@@ -95,6 +99,18 @@ const ToggleDecimals = ({ value }: { value: string }) => {
   );
 };
 
+
+// Explorer helpers
+const getExplorerBase = (chainId: ChainId): string => {
+  switch (chainId) {
+    case 1: return "https://etherscan.io";
+    case 11155111: return "https://sepolia.etherscan.io";
+    case 17000: return "https://holesky.etherscan.io";
+    default: return "https://etherscan.io";
+  }
+};
+
+
 const getPendingContributions = (address: string): PieData[] => {
   if (typeof window === "undefined") return []; // Prevent SSR access
   const data = localStorage.getItem(`pendingContributions_${address}`);
@@ -106,7 +122,7 @@ const setPendingContributions = (address: string, contributions: PieData[]) => {
   localStorage.setItem(`pendingContributions_${address}`, JSON.stringify(contributions));
 };
 
-const renderActiveShape = (props: ActiveShapeProps): JSX.Element => {
+const renderActiveShape = (props: unknown): JSX.Element => {
   const {
     cx,
     cy,
@@ -119,7 +135,7 @@ const renderActiveShape = (props: ActiveShapeProps): JSX.Element => {
     payload,
     percent,
     value,
-  } = props;
+  } = props as ActiveShapeProps;
   const RADIAN = Math.PI / 180;
   const sin = Math.sin(-RADIAN * midAngle);
   const cos = Math.cos(-RADIAN * midAngle);
@@ -431,22 +447,45 @@ const HistoricalPhaseCard = ({
 
 // Main Component
 export default function Dashboard() {
-  
+
   const [ethAmount, setEthAmount] = useState("0.01");
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isMinting, setIsMinting] = useState<Map<number, boolean>>(new Map());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeNetwork, setActiveNetwork] = useState<ChainId>(sepolia.id);
-  const [publicProvider] = useState(() =>
-    typeof window !== "undefined"
-      ? new ethers.JsonRpcProvider(
-          process.env.INFURA
-            ? `https://sepolia.infura.io/v3/${process.env.INFURA}`
-            : "https://rpc.sepolia.org"
-        )
-      : null
-  );
+  const [publicProvider, setPublicProvider] = useState<ethers.JsonRpcProvider | null>(null);
+  const { address: account, isConnected } = useAccount();
+  useEffect(() => {
+
+    if (typeof window === 'undefined') return;
+    // Prefer the wallet's provider when connected to guarantee network parity
+    try {
+      const eth = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
+      if (eth && isConnected) {
+        const bp = new ethers.BrowserProvider(eth);
+        setPublicProvider(bp as unknown as ethers.JsonRpcProvider);
+        return;
+      }
+    } catch {}
+
+    let rpcUrl: string;
+    switch (activeNetwork) {
+      case sepolia.id:
+        rpcUrl = process.env.INFURA ? `https://sepolia.infura.io/v3/${process.env.INFURA}` : 'https://rpc.sepolia.org';
+        break;
+      case holesky.id:
+        rpcUrl = process.env.INFURAHOLESKY ? `https://holesky.infura.io/v3/${process.env.INFURAHOLESKY}` : 'https://rpc.holesky.ethpandaops.io';
+        break;
+      case mainnet.id:
+        rpcUrl = process.env.INFURAMAIN ? `https://mainnet.infura.io/v3/${process.env.INFURAMAIN}` : 'https://ethereum.publicnode.com';
+        break;
+      default:
+        setErrorMessage('Unsupported network selected.');
+        return;
+    }
+    setPublicProvider(new ethers.JsonRpcProvider(rpcUrl));
+  }, [activeNetwork, isConnected]);
   const [contractData, setContractData] = useState({
     currentPhase: 0,
     totalMinted: "0",
@@ -470,14 +509,28 @@ export default function Dashboard() {
     historicalPhaseParticipants: [] as PieData[][],
     historicalPhaseProgress: [] as { phase: number; progress: number; blocksPassed: number; totalBlocks: number }[],
     isLaunchComplete: false,
+    codeSize: 0,
+    providerChainId: 0,
+    tokenName: "",
+    tokenSymbol: "",
   });
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
+  const [hasInitialUserFetch, setHasInitialUserFetch] = useState(false);
+  const [publicFailureCount, setPublicFailureCount] = useState(0);
+  const [userFailureCount, setUserFailureCount] = useState(0);
+  const [hasPublicLight, setHasPublicLight] = useState(false);
+  const [hasPublicDetails, setHasPublicDetails] = useState(false);
+  const isFetchingPublicRef = useRef(false);
+  const isFetchingUserRef = useRef(false);
 
-  const { address: account, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
+
+
+
+
+
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
-  const chainId = useChainId();
+
   const { data: walletClient } = useWalletClient();
   const { sendTransaction, isSuccess, error: rawTxError, data: txData } = useSendTransaction();
   const txError = rawTxError as Error | null;
@@ -490,7 +543,10 @@ export default function Dashboard() {
     contractData.blockNumber && contractData.launchBlock > 0
       ? Math.min(((contractData.blockNumber - contractData.launchBlock) / TOTAL_BLOCKS) * 100, 100)
       : 0;
-  const blocksSinceLaunch = Math.min(contractData.blockNumber - contractData.launchBlock, TOTAL_BLOCKS);
+  const blocksSinceLaunch =
+    contractData.launchBlock > 0
+      ? Math.min(Math.max(0, contractData.blockNumber - contractData.launchBlock), TOTAL_BLOCKS)
+      : 0;
   const userParticipated = parseFloat(contractData.userCurrentPhaseContributions) > 0 || contractData.pendingPhaseParticipants.length > 0;
   const phaseStartBlock = contractData.launchBlock + PHASES[contractData.currentPhase].start;
   const phaseEndBlock = contractData.launchBlock + PHASES[contractData.currentPhase].end;
@@ -530,20 +586,106 @@ export default function Dashboard() {
     }, 0);
   }, [contractData.mintablePhases, contractData.phaseContributions, contractData.historicalData]);
 
-  const connectWallet = useCallback(() => {
-    const metaMaskConnector = connectors.find((c) => c.name === "MetaMask");
-    if (metaMaskConnector) connect({ connector: metaMaskConnector });
-  }, [connectors, connect]);
+  // AppKit handles connection via <w3m-button />
 
   const fetchPublicContractData = useCallback(async () => {
-    if (!publicProvider) return;
-    const publicContract = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, publicProvider);
+    if (!publicProvider || isFetchingPublicRef.current) return;
+    isFetchingPublicRef.current = true;
     try {
+      // Resolve network, block and contract code first to validate address/network
+      const net0 = await publicProvider.getNetwork();
+      const providerChainId0 = Number((net0 as { chainId: number | bigint }).chainId);
+      const block0 = await publicProvider.getBlockNumber();
+      const code0 = await publicProvider.getCode(CONTRACT_ADDRESSES[activeNetwork]);
+      const codeSize0 = code0 && code0 !== "0x" ? Math.floor((code0.length - 2) / 2) : 0;
+      const monotonicBlockPublic0 = Math.max(contractData.blockNumber, block0);
+
+      // If provider chain doesn't match selected network, surface it clearly and stop
+      if (providerChainId0 !== activeNetwork) {
+        setContractData((prev) => ({
+          ...prev,
+          providerChainId: providerChainId0,
+          blockNumber: monotonicBlockPublic0,
+          launchBlock: 0,
+          codeSize: codeSize0,
+          isLaunchComplete: false,
+        }));
+        setHasPublicLight(true);
+        setHasPublicDetails(false);
+        setErrorMessage(`Public RPC is on chain ${providerChainId0}, but UI is set to ${activeNetwork}. Please switch networks.`);
+        return;
+      }
+
+      if (!code0 || code0 === "0x") {
+        // No contract at this address on selected network
+        setContractData((prev) => ({
+          ...prev,
+          providerChainId: providerChainId0,
+          blockNumber: monotonicBlockPublic0,
+          codeSize: 0,
+          launchBlock: 0,
+          currentPhase: 0,
+          totalMinted: prev.totalMinted,
+          totalTokensThisPhase: PHASES[0].amount,
+          currentPhaseContributions: "0",
+          totalContributions: "0",
+          isLaunchComplete: false,
+        }));
+        setHasPublicLight(true);
+        setHasPublicDetails(false);
+        setErrorMessage("No contract code at this address on the selected network.");
+        return;
+      }
+
+      const publicContract = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, publicProvider);
+
+      // Fetch minimal fast fields first and surface them immediately
+      const launch0 = Number(await publicContract.launchBlock()) || 0;
+      setContractData((prev) => ({
+        ...prev,
+        providerChainId: providerChainId0,
+        blockNumber: monotonicBlockPublic0,
+        launchBlock: launch0,
+        codeSize: codeSize0,
+      }));
+      setHasPublicLight(true);
+
+      // Try to read token identity (best-effort)
+      let tokenName0 = "";
+      let tokenSymbol0 = "";
+      try {
+        tokenName0 = await publicContract.name();
+        tokenSymbol0 = await publicContract.symbol();
+      } catch {}
+
       const phase = Number(await publicContract.getCurrentPhase()) || 0;
       const minted = await publicContract.totalSupply();
+      const isLaunchComplete0 = launch0 > 0 && block0 >= launch0 + TOTAL_BLOCKS;
+      const currentPhaseTotalContrib = await publicContract.totalContributions(phase);
+      // Precompute quick totals
+      const phaseTotals0 = await Promise.all(PHASES.map((_, i) => publicContract.totalContributions(i)));
+      const totalContribAcross = phaseTotals0.reduce((acc, c) => acc + BigInt(c), BigInt(0));
+
+      setContractData((prev) => ({
+        ...prev,
+        providerChainId: providerChainId0,
+        tokenName: tokenName0 || prev.tokenName,
+        tokenSymbol: tokenSymbol0 || prev.tokenSymbol,
+        currentPhase: isLaunchComplete0 ? PHASES.length - 1 : phase,
+        totalMinted: ethers.formatEther(minted),
+        blockNumber: monotonicBlockPublic0,
+        launchBlock: launch0,
+        totalTokensThisPhase: PHASES[phase].amount,
+        currentPhaseContributions: ethers.formatEther(currentPhaseTotalContrib),
+        totalContributions: ethers.formatEther(totalContribAcross),
+        isLaunchComplete: isLaunchComplete0,
+        codeSize: codeSize0,
+      }));
+      setHasPublicLight(true);
+
       const block = await publicProvider.getBlockNumber();
       const launch = Number(await publicContract.launchBlock()) || 0;
-      const isLaunchComplete = block >= launch + TOTAL_BLOCKS;
+      const isLaunchComplete = launch > 0 && block >= launch + TOTAL_BLOCKS;
 
       let aggregatedTotalContrib = BigInt(0);
       const phaseContributions = Array(PHASES.length).fill("0");
@@ -553,24 +695,36 @@ export default function Dashboard() {
       const allContributors: Map<string, PieData> = new Map();
       const historical: HistoricalData[] = [];
 
-      for (let i = 0; i < PHASES.length; i++) {
-        const totalContrib = await publicContract.totalContributions(i);
-        aggregatedTotalContrib += totalContrib;
-        phaseContributions[i] = "0";
+      // Fetch contributors for all phases in parallel
+      const contributorLists = await Promise.all(
+        PHASES.map((_, i) => publicContract.getPhaseContributors(i))
+      );
 
-        const contributors = await publicContract.getPhaseContributors(i);
+      for (let i = 0; i < PHASES.length; i++) {
+        const totalContrib = phaseTotals0[i];
+        aggregatedTotalContrib += totalContrib;
+        phaseContributions[i] = ethers.formatEther(totalContrib);
+
+        const contributors: string[] = contributorLists[i] as string[];
         const phaseParticipants: PieData[] = [];
+
+        // Track unique contributors across phases
         contributors.forEach((addr: string) => {
           if (!allContributors.has(addr)) {
             allContributors.set(addr, { name: `${addr.slice(0, 6)}...`, value: 0, address: addr, tokens: 0 });
           }
         });
 
-        for (const addr of contributors) {
-          const contrib = await publicContract.contributions(i, addr);
+        // Fetch per-address contributions in parallel for this phase
+        const contribValues = await Promise.all(
+          contributors.map((addr) => publicContract.contributions(i, addr))
+        );
+        const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
+
+        contributors.forEach((addr, idx) => {
+          const contrib = contribValues[idx];
           if (contrib > BigInt(0)) {
             const userShare = parseFloat(ethers.formatEther(contrib));
-            const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
             const tokenShare =
               totalPhaseContrib > 0 && (i < phase || block > (launch + PHASES[i].end))
                 ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount)
@@ -596,7 +750,8 @@ export default function Dashboard() {
               });
             }
           }
-        }
+        });
+
         historicalPhaseParticipants[i] = phaseParticipants;
         const phaseStart = launch + PHASES[i].start;
         const phaseEnd = launch + PHASES[i].end;
@@ -612,10 +767,16 @@ export default function Dashboard() {
         });
       }
 
-      setContractData({
+      const monotonicBlockPublic = Math.max(contractData.blockNumber, block);
+      const code = await publicProvider.getCode(CONTRACT_ADDRESSES[activeNetwork]);
+      const codeSize = code && code !== "0x" ? Math.floor((code.length - 2) / 2) : 0;
+      const currentPhaseTotalContribNow = await publicContract.totalContributions(phase);
+
+      setContractData((prev) => ({
+        ...prev,
         currentPhase: isLaunchComplete ? PHASES.length - 1 : phase,
         totalMinted: ethers.formatEther(minted),
-        blockNumber: block,
+        blockNumber: monotonicBlockPublic,
         launchBlock: launch,
         userContributions: "0",
         totalContributions: ethers.formatEther(aggregatedTotalContrib),
@@ -623,9 +784,9 @@ export default function Dashboard() {
         mintedPhases: [],
         estimatedReward: "0",
         phaseContributions,
-        participantsCount: phaseParticipantsData.length,
+        participantsCount: phaseParticipantsData.length + (account ? getPendingContributions(account).filter(p => (p.phase ?? phase) === phase).length : 0),
         totalParticipants: allContributors.size,
-        currentPhaseContributions: ethers.formatEther(await publicContract.totalContributions(phase)),
+        currentPhaseContributions: ethers.formatEther(currentPhaseTotalContribNow),
         userCurrentPhaseContributions: "0",
         totalTokensThisPhase: PHASES[phase].amount,
         phaseParticipants: phaseParticipantsData,
@@ -635,22 +796,50 @@ export default function Dashboard() {
         historicalPhaseParticipants,
         historicalPhaseProgress,
         isLaunchComplete,
-      });
-      if (errorMessage === "Error fetching public blockchain data.") setErrorMessage(null);
+        codeSize,
+      }));
+      setErrorMessage(null);
+      setPublicFailureCount(0);
+      setHasPublicDetails(true);
+
     } catch (error) {
-      console.error("Failed to fetch public contract data:", error);
-      setErrorMessage("Error fetching public blockchain data. Please try refreshing.");
+      console.error("Failed to fetch public contract data:", error) ;
+      setPublicFailureCount((c) => {
+        const next = c + 1;
+        if (next >= 2) setErrorMessage("Error fetching public blockchain data. Please try refreshing.");
+        return next;
+      });
+    } finally {
+      isFetchingPublicRef.current = false;
     }
-  }, [activeNetwork, publicProvider, account, errorMessage]);
+  }, [activeNetwork, publicProvider, account, contractData.blockNumber]);
 
   const fetchUserContractData = useCallback(async () => {
-    if (!contract || !provider || !account) return;
+    if (!contract || !provider || !account || isFetchingUserRef.current) return;
+    isFetchingUserRef.current = true;
     try {
+      const blockProvider = publicProvider ?? provider;
+      // Resolve network + block + code fast to populate diagnostics if public fetch hasn't yet
+      const net1 = await blockProvider.getNetwork();
+      const providerChainId1 = Number((net1 as { chainId: number | bigint }).chainId);
+      const block1 = await blockProvider.getBlockNumber();
+      const code1 = await blockProvider.getCode(CONTRACT_ADDRESSES[activeNetwork]);
+      const codeSize1 = code1 && code1 !== "0x" ? Math.floor((code1.length - 2) / 2) : 0;
+
+      const launch = Number(await contract.launchBlock()) || 0;
       const phase = Number(await contract.getCurrentPhase()) || 0;
       const minted = await contract.totalSupply();
-      const block = await provider.getBlockNumber();
-      const launch = Number(await contract.launchBlock()) || 0;
-      const isLaunchComplete = block >= launch + TOTAL_BLOCKS;
+      const isLaunchComplete = launch > 0 && block1 >= launch + TOTAL_BLOCKS;
+
+      // Ensure diagnostics and light stats become visible
+      setContractData(prev => ({
+        ...prev,
+        providerChainId: providerChainId1,
+        blockNumber: Math.max(prev.blockNumber, block1),
+        launchBlock: launch,
+        codeSize: codeSize1 || prev.codeSize,
+      }));
+      setHasPublicLight(true);
 
       let aggregatedUserContrib = BigInt(0);
       let aggregatedTotalContrib = BigInt(0);
@@ -664,22 +853,24 @@ export default function Dashboard() {
       const historical: HistoricalData[] = [];
 
       for (let i = 0; i < PHASES.length; i++) {
-        const userContrib = await contract.contributions(i, account);
-        const totalContrib = await contract.totalContributions(i);
-        const hasMintedPhase = await contract.hasMinted(i, account);
+        const [userContrib, totalContrib, hasMintedPhase] = await Promise.all([
+          contract.contributions(i, account),
+          contract.totalContributions(i),
+          contract.hasMinted(i, account),
+        ]);
         const phaseStart = launch + PHASES[i].start;
         const phaseEnd = launch + PHASES[i].end;
         const blocksInPhase = phaseEnd - phaseStart;
-        const blocksPassed = Math.min(Math.max(0, block - phaseStart), blocksInPhase);
+        const blocksPassed = Math.min(Math.max(0, block1 - phaseStart), blocksInPhase);
         const progress = blocksInPhase > 0 ? (blocksPassed / blocksInPhase) * 100 : 0;
 
-        if (userContrib > 0 && block > phaseEnd && !hasMintedPhase) mintable.push(i);
+        if (userContrib > 0 && block1 > phaseEnd && !hasMintedPhase) mintable.push(i);
         if (userContrib > 0 && hasMintedPhase) mintedPhases.push(i);
         aggregatedUserContrib += userContrib;
         aggregatedTotalContrib += totalContrib;
         phaseContributions[i] = ethers.formatEther(userContrib);
 
-        const contributors = await contract.getPhaseContributors(i);
+        const contributors: string[] = await contract.getPhaseContributors(i);
         const phaseParticipants: PieData[] = [];
         contributors.forEach((addr: string) => {
           if (!allContributors.has(addr)) {
@@ -687,13 +878,15 @@ export default function Dashboard() {
           }
         });
 
-        for (const addr of contributors) {
-          const contrib = await contract.contributions(i, addr);
+        const contribValues = await Promise.all(contributors.map((addr: string) => contract.contributions(i, addr)));
+        const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
+
+        contributors.forEach((addr: string, idx: number) => {
+          const contrib = contribValues[idx];
           if (contrib > BigInt(0)) {
             const userShare = parseFloat(ethers.formatEther(contrib));
-            const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
             const tokenShare =
-              totalPhaseContrib > 0 && (hasMintedPhase || (i < phase && block > phaseEnd))
+              totalPhaseContrib > 0 && (hasMintedPhase || (i < phase && block1 > phaseEnd))
                 ? (userShare / totalPhaseContrib) * parseFloat(PHASES[i].amount)
                 : 0;
             const existing = allContributors.get(addr)!;
@@ -708,7 +901,7 @@ export default function Dashboard() {
                 address: addr,
                 tokens: phaseTokenShare,
               });
-            } else if (block > phaseEnd) {
+            } else if (block1 > phaseEnd) {
               phaseParticipants.push({
                 name: `${addr.slice(0, 6)}...`,
                 value: userShare,
@@ -717,7 +910,7 @@ export default function Dashboard() {
               });
             }
           }
-        }
+        });
         historicalPhaseParticipants[i] = phaseParticipants;
         historicalPhaseProgress.push({ phase: i, progress, blocksPassed, totalBlocks: blocksInPhase });
 
@@ -728,15 +921,17 @@ export default function Dashboard() {
         });
       }
 
-      const currentPhaseUserContrib = await contract.contributions(phase, account);
-      const currentPhaseTotalContrib = await contract.totalContributions(phase);
+      const [currentPhaseUserContrib, currentPhaseTotalContrib] = await Promise.all([
+        contract.contributions(phase, account),
+        contract.totalContributions(phase),
+      ]);
       const totalTokensThisPhase = parseFloat(PHASES[phase].amount);
 
       const storedPending = getPendingContributions(account);
       const updatedPending = storedPending.filter((p) => {
         const phaseIndex = p.phase || 0;
         const phaseEnd = launch + PHASES[phaseIndex].end;
-        const isPhaseActive = block <= phaseEnd;
+        const isPhaseActive = block1 <= phaseEnd;
         return isPhaseActive && p.value > 0;
       });
 
@@ -780,10 +975,11 @@ export default function Dashboard() {
         });
       }
 
-      setContractData({
+      setContractData((prev) => ({
+        ...prev,
         currentPhase: isLaunchComplete ? PHASES.length - 1 : phase,
         totalMinted: ethers.formatEther(minted),
-        blockNumber: block,
+        blockNumber: Math.max(prev.blockNumber, block1),
         launchBlock: launch,
         userContributions: ethers.formatEther(aggregatedUserContrib),
         totalContributions: ethers.formatEther(aggregatedTotalContrib),
@@ -803,39 +999,53 @@ export default function Dashboard() {
         historicalPhaseParticipants,
         historicalPhaseProgress,
         isLaunchComplete,
-      });
+        codeSize: codeSize1 || prev.codeSize,
+      }));
       setPendingContributions(account, updatedPending);
-      if (errorMessage === "Error fetching user blockchain data.") setErrorMessage(null);
+      setHasInitialUserFetch(true);
+      setUserFailureCount(0);
+      setErrorMessage(null);
     } catch (error) {
       console.error("Failed to fetch user contract data:", error);
-      setErrorMessage("Error fetching user blockchain data. Please try refreshing.");
+      setUserFailureCount((c) => {
+        const next = c + 1;
+        if (next >= 2) setErrorMessage("Error fetching user blockchain data. Please try refreshing.");
+        return next;
+      });
+    } finally {
+      isFetchingUserRef.current = false;
     }
-  }, [contract, provider, account, errorMessage]);
+  }, [contract, provider, account, publicProvider, activeNetwork]);
+
+  const [txMessage, setTxMessage] = useState<string | null>(null);
 
   const sendEth = useCallback(async () => {
     if (!isConnected || !signer || !account || !contract || contractData.isLaunchComplete) {
-      alert(contractData.isLaunchComplete ? "Launch is complete, no more contributions accepted." : "Please connect your wallet!");
+      setTxMessage(contractData.isLaunchComplete ? "Launch is complete, no more contributions accepted." : "Please connect your wallet!");
+      setTimeout(() => setTxMessage(null), 4000);
       return;
     }
     if (parseFloat(ethAmount) < parseFloat(MINIMUM_ETH)) {
-      setErrorMessage("Minimum contribution is 0.001 ETH.");
+      setTxMessage("Minimum contribution is 0.001 ETH.");
+      setTimeout(() => setTxMessage(null), 4000);
       return;
     }
     setIsSending(true);
     try {
-      const txData = contract.interface.encodeFunctionData("contribute", [contractData.currentPhase]);
-      await sendTransaction({
+      sendTransaction({
         to: CONTRACT_ADDRESSES[activeNetwork] as `0x${string}`,
         value: parseEther(ethAmount),
         chainId: activeNetwork,
-        data: txData as `0x${string}`,
       });
+      setTxMessage("Waiting for wallet confirmation...");
+      setTimeout(() => setTxMessage(null), 4000);
     } catch (error) {
       console.error("Send ETH failed:", error);
-      setErrorMessage(`Transaction failed: ${(error as Error).message}`);
+      setTxMessage(`Transaction failed: ${(error as Error).message}`);
+      setTimeout(() => setTxMessage(null), 5000);
       setIsSending(false);
     }
-  }, [isConnected, signer, account, ethAmount, activeNetwork, sendTransaction, contract, contractData.isLaunchComplete, contractData.currentPhase]);
+  }, [isConnected, signer, account, ethAmount, activeNetwork, sendTransaction, contract, contractData.isLaunchComplete]);
 
   const mintTokens = useCallback(
     async (phase: number) => {
@@ -874,23 +1084,22 @@ export default function Dashboard() {
     }
   }, [contract, account, contractData.mintablePhases, fetchUserContractData]);
 
-  useEffect(() => {
-    if (chainId && (chainId === sepolia.id || chainId === mainnet.id)) setActiveNetwork(chainId as ChainId);
-  }, [chainId]);
+  // Do not override activeNetwork from chainId to avoid flicker/mismatch on cold load
+  // Navbar will set both activeNetwork and request wallet switch together
 
   useEffect(() => {
-    if (!walletClient) return; // Ensure initialization only happens client-side with wallet
-    if (isConnected && account) {
+    if (isConnected && account && walletClient) {
       setIsLoading(true);
       const init = async () => {
-        switchChain({ chainId: activeNetwork });
-        const providerInstance = new ethers.BrowserProvider(walletClient);
+        // Do not auto-switch chains here to avoid flicker; Navbar will call switchChain
+        const providerInstance = new ethers.BrowserProvider((window as unknown as { ethereum: EIP1193Provider }).ethereum);
         const signerInstance = await providerInstance.getSigner();
         const contractInstance = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, signerInstance);
         setProvider(providerInstance);
         setSigner(signerInstance);
         setContract(contractInstance);
         await fetchUserContractData();
+        setTimeout(fetchUserContractData, 1500);
         setIsLoading(false);
       };
       init();
@@ -899,6 +1108,26 @@ export default function Dashboard() {
       fetchPublicContractData().then(() => setIsLoading(false));
     }
   }, [isConnected, walletClient, account, activeNetwork, switchChain, fetchUserContractData, fetchPublicContractData, publicProvider]);
+
+  // Ensure public data loads even before wallet client is ready
+  useEffect(() => {
+    if (!publicProvider) return;
+    fetchPublicContractData();
+    const interval = setInterval(() => {
+      if (!hasInitialUserFetch) fetchPublicContractData();
+    }, 12000);
+    return () => clearInterval(interval);
+  }, [publicProvider, hasInitialUserFetch, fetchPublicContractData]);
+
+  // Clear user error when disconnected
+  useEffect(() => {
+    if (!isConnected) {
+      setUserFailureCount(0);
+      if (errorMessage && errorMessage.toLowerCase().includes("user blockchain")) {
+        setErrorMessage(null);
+      }
+    }
+  }, [isConnected, errorMessage]);
 
   useEffect(() => {
     if (isSuccess && txData && contract && provider && account && txData !== lastTxHash) {
@@ -925,6 +1154,8 @@ export default function Dashboard() {
       };
 
       setContractData((prev) => {
+
+
         const existingPending = prev.pendingPhaseParticipants.filter(p => p.phase !== contractData.currentPhase);
         const currentPhasePending = prev.pendingPhaseParticipants.filter(p => p.phase === contractData.currentPhase);
         const updatedPending = [...existingPending, ...currentPhasePending, tempParticipant];
@@ -963,7 +1194,8 @@ export default function Dashboard() {
       setTimeout(fetchUserContractData, 5000);
     } else if (txError) {
       setIsSending(false);
-      setErrorMessage(`Transaction failed: ${txError.message || "Unknown error"}`);
+      setTxMessage(`Transaction failed: ${txError.message || "Unknown error"}`);
+      setTimeout(() => setTxMessage(null), 5000);
     }
   }, [isSuccess, txError, txData, contract, provider, account, ethAmount, contractData, fetchUserContractData, lastTxHash]);
 
@@ -971,10 +1203,11 @@ export default function Dashboard() {
     if (isConnected && !contractData.isLaunchComplete) {
       const interval = setInterval(() => {
         fetchUserContractData();
-      }, 30000);
+      }, 6000);
       return () => clearInterval(interval);
     }
   }, [isConnected, contractData.isLaunchComplete, fetchUserContractData]);
+
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -989,17 +1222,16 @@ export default function Dashboard() {
   if (typeof window === "undefined") {
     return null; // Prevent SSR rendering entirely
   }
-  
+
 
   return (
     <div className="min-h-screen bg-gray-900 text-white overflow-x-hidden">
       <Navbar
         account={account}
         provider={provider}
-        connectWallet={connectWallet}
         disconnectWallet={disconnect}
         activeNetwork={activeNetwork}
-        setActiveNetwork={(id: number) => setActiveNetwork(id as ChainId)}
+        setActiveNetwork={(id: number) => { setActiveNetwork(id as ChainId); switchChain({ chainId: id as ChainId }); }}
       />
       <div className="container mx-auto px-4 py-8 md:py-12">
         <motion.header
@@ -1014,6 +1246,55 @@ export default function Dashboard() {
           </h1>
           <p className="mt-2 text-gray-300 text-lg">Participate in a decentralized ecosystem</p>
         </motion.header>
+
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <div className="text-sm text-gray-300">
+            Contract: <span className="font-mono text-white">{CONTRACT_ADDRESSES[activeNetwork]}</span>
+          </div>
+          <div className="flex gap-3">
+            <a
+              href={`${getExplorerBase(activeNetwork)}/address/${CONTRACT_ADDRESSES[activeNetwork]}`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1 rounded-md bg-gray-800 border border-gray-700 hover:border-indigo-500 text-sm text-indigo-300 hover:text-indigo-200 transition-colors"
+            >
+              View on Etherscan
+            </a>
+          </div>
+        </div>
+        <div className="mt-6 w-full max-w-4xl mx-auto">
+          <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-4 md:p-6 rounded-2xl shadow-xl border border-gray-700">
+            <h3 className="text-lg font-semibold text-indigo-300 mb-3">Network Diagnostics</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <div className="text-gray-400">Current block</div>
+                <div className="font-mono text-white">{hasPublicLight ? contractData.blockNumber : <span className="inline-block h-4 w-16 bg-gray-700/60 rounded animate-pulse" />}</div>
+              </div>
+              <div>
+                <div className="text-gray-400">Provider chainId</div>
+                <div className="font-mono text-white">{hasPublicLight ? (contractData.providerChainId || "-") : <span className="inline-block h-4 w-12 bg-gray-700/60 rounded animate-pulse" />}</div>
+              </div>
+              <div>
+                <div className="text-gray-400">launchBlock</div>
+                <div className="font-mono text-white">{hasPublicLight ? contractData.launchBlock : <span className="inline-block h-4 w-16 bg-gray-700/60 rounded animate-pulse" />}</div>
+              </div>
+              <div>
+                <div className="text-gray-400">blocksSinceLaunch</div>
+                <div className="font-mono text-white">{hasPublicLight ? blocksSinceLaunch : <span className="inline-block h-4 w-20 bg-gray-700/60 rounded animate-pulse" />}</div>
+              </div>
+              <div>
+                <div className="text-gray-400">Contract code size</div>
+                <div className="font-mono text-white">{hasPublicLight ? `${contractData.codeSize} bytes` : <span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />}</div>
+              </div>
+              <div>
+                <div className="text-gray-400">Token</div>
+                <div className="font-mono text-white">{hasPublicLight ? ((contractData.tokenName && contractData.tokenSymbol) ? `${contractData.tokenName} (${contractData.tokenSymbol})` : "-") : <span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
 
         {contractData.isLaunchComplete && (
           <div className="mb-12">
@@ -1055,11 +1336,30 @@ export default function Dashboard() {
                 placeholder="Enter ETH amount (min 0.001)"
                 disabled={!isConnected || isSending || contractData.isLaunchComplete}
               />
-              {errorMessage && (
-                <p className={`text-sm mt-2 ${errorMessage.includes("accepted") ? "text-green-400" : "text-red-400"}`}>
-                  {errorMessage}
-                </p>
+              {txMessage && (
+                <p className="text-sm mt-2 text-indigo-300">{txMessage}</p>
               )}
+              {(() => {
+                const showPublicError = publicFailureCount >= 2 && !hasPublicLight;
+                const showUserError = isConnected && userFailureCount >= 2 && !hasInitialUserFetch && !contract;
+                if (errorMessage && (showPublicError || showUserError)) {
+                  return (
+                    <p className={`text-sm mt-2 ${errorMessage.includes("accepted") ? "text-green-400" : "text-red-400"}`}>
+                      {errorMessage}
+                    </p>
+                  );
+                }
+                if (!errorMessage && (showPublicError || showUserError)) {
+                  return (
+                    <p className="text-sm mt-2 text-red-400">
+                      {showUserError
+                        ? "Error fetching user blockchain data. Please try refreshing."
+                        : "Error fetching public blockchain data. Please try refreshing."}
+                    </p>
+                  );
+                }
+                return null;
+              })()}
               <button
                 onClick={sendEth}
                 disabled={!isConnected || isSending || contractData.isLaunchComplete}
@@ -1162,30 +1462,49 @@ export default function Dashboard() {
                 <p className="text-gray-300">The token launch has concluded after {blocksSinceLaunch} blocks.</p>
               ) : (
                 <div className="space-y-4">
-                  <div>
-                    <p className="text-sm text-gray-300">
-                      Total Progress: {Math.round(launchPhaseProgress)}% ({blocksSinceLaunch} / {TOTAL_BLOCKS} blocks)
-                    </p>
-                    <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
-                      <motion.div
-                        className="bg-indigo-500 h-full rounded-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${launchPhaseProgress}%` }}
-                        transition={{ duration: 1 }}
-                      />
+                  {!hasPublicLight ? (
+                    <div className="space-y-4">
+                      <div>
+                        <div className="h-4 w-64 bg-gray-700/60 rounded animate-pulse mb-2"></div>
+                        <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
+                          <div className="animate-pulse bg-gray-600 h-full rounded-full w-1/3"></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="h-4 w-40 bg-gray-700/60 rounded animate-pulse mb-2"></div>
+                        <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
+                          <div className="animate-pulse bg-gray-600 h-full rounded-full w-1/4"></div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-300">Phase Progress: {Math.round(launchPhaseEndProgress)}%</p>
-                    <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
-                      <motion.div
-                        className="bg-green-500 h-full rounded-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${launchPhaseEndProgress}%` }}
-                        transition={{ duration: 1 }}
-                      />
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div>
+                        <p className="text-sm text-gray-300">
+                          Total Progress: {Math.round(launchPhaseProgress)}% ({blocksSinceLaunch} / {TOTAL_BLOCKS} blocks)
+                        </p>
+                        <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
+                          <motion.div
+                            className="bg-indigo-500 h-full rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${launchPhaseProgress}%` }}
+                            transition={{ duration: 1 }}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-300">Phase Progress: {Math.round(launchPhaseEndProgress)}%</p>
+                        <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
+                          <motion.div
+                            className="bg-green-500 h-full rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${launchPhaseEndProgress}%` }}
+                            transition={{ duration: 1 }}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>Total Tokens:</div>
                     <div><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</div>
@@ -1244,26 +1563,33 @@ export default function Dashboard() {
               </h2>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>Total Minted:</div>
-                <div><ToggleDecimals value={contractData.totalMinted} /> MMM</div>
+                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalMinted} /> MMM</>) : (<div className="h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Total Contributions:</div>
-                <div><ToggleDecimals value={contractData.totalContributions} /> ETH</div>
+                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalContributions} /> ETH</>) : (<div className="h-4 w-28 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Total Participants:</div>
-                <div>{contractData.totalParticipants}</div>
+                <div>{hasPublicDetails ? contractData.totalParticipants : (<div className="h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Phase Tokens:</div>
-                <div><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</div>
+                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</>) : (<div className="h-4 w-20 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Phase Contributions:</div>
-                <div><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</div>
+                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</>) : (<div className="h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Phase Participants:</div>
-                <div>{contractData.participantsCount}</div>
+                <div>{hasPublicDetails ? contractData.participantsCount : (<div className="h-4 w-10 bg-gray-700/60 rounded animate-pulse" />)}</div>
               </div>
             </motion.div>
 
-            <PieChartCard
-              title="Global Contributions"
-              icon={<FaUsers className="text-blue-400" />}
-              data={contractData.totalParticipantsData}
-              totalTokens={contractData.totalMinted}
-            />
+            {hasPublicDetails ? (
+              <PieChartCard
+                title="Global Contributions"
+                icon={<FaUsers className="text-blue-400" />}
+                data={contractData.totalParticipantsData}
+                totalTokens={contractData.totalMinted}
+              />
+            ) : (
+              <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700">
+                <div className="h-6 w-48 bg-gray-700/60 rounded animate-pulse mb-4" />
+                <div className="h-48 w-full bg-gray-700/40 rounded animate-pulse" />
+              </div>
+            )}
 
             <PieChartCard
               title="Supply Details"

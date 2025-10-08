@@ -10,7 +10,7 @@ import { motion } from "framer-motion";
 interface NavbarProps {
   account: `0x${string}` | undefined;
   provider: ethers.BrowserProvider | null;
-  connectWallet: () => void;
+
   disconnectWallet: () => void;
   activeNetwork: number;
   setActiveNetwork: (networkId: number) => void;
@@ -19,7 +19,6 @@ interface NavbarProps {
 export default function Navbar({
   account,
   provider,
-  connectWallet,
   disconnectWallet,
   activeNetwork,
   setActiveNetwork,
@@ -27,6 +26,7 @@ export default function Navbar({
   const [balance, setBalance] = useState<string | null>(null); // Start as null to avoid SSR mismatch
   const [copied, setCopied] = useState<boolean>(false);
   const [isMounted, setIsMounted] = useState(false); // Track client-side mounting
+  const [lastAccount, setLastAccount] = useState<string | undefined>(undefined);
 
   const fetchBalance = useCallback(async () => {
     if (account && provider) {
@@ -35,20 +35,19 @@ export default function Navbar({
         setBalance(ethers.formatEther(balanceBigInt).slice(0, 6));
       } catch (error) {
         console.error("Failed to fetch balance:", error);
-        setBalance("0.00");
+        // keep previous balance on error to avoid flicker
       }
     } else {
-      setBalance("0.00");
+      // keep previous balance to avoid flicker during brief re-inits
     }
   }, [account, provider]);
 
   // Ensure balance fetching only happens on the client after mount
   useEffect(() => {
     setIsMounted(true); // Mark as mounted on client
+    if (account) setLastAccount(account);
     if (account && provider) {
       fetchBalance();
-    } else {
-      setBalance("0.00");
     }
   }, [account, provider, fetchBalance]);
 
@@ -119,12 +118,12 @@ export default function Navbar({
       </div>
 
       <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
-        {account ? (
+        {(account || lastAccount) ? (
           <div className="text-white font-medium text-center sm:text-left">
-            <p className="text-sm">Balance: {balance ?? "0.00"} ETH</p>
+            <p className="text-sm">Balance: {balance !== null ? `${balance} ETH` : <span className="inline-block w-16 h-4 bg-gray-700 rounded animate-pulse" />}</p>
             <div className="flex items-center justify-center sm:justify-start gap-2 cursor-pointer group" onClick={copyToClipboard}>
               <p className="text-sm font-mono">
-                {account.slice(0, 6)}...{account.slice(-4)}
+                {(account ?? lastAccount)!.slice(0, 6)}...{(account ?? lastAccount)!.slice(-4)}
               </p>
               {copied ? (
                 <FiCheck className="text-green-400 text-lg" />
@@ -137,14 +136,8 @@ export default function Navbar({
           <span className="text-gray-400 text-sm">Not Connected</span>
         )}
 
-        {!account ? (
-          <button
-            onClick={connectWallet}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md shadow-md hover:bg-indigo-700 transition-all font-medium text-sm w-full sm:w-auto"
-          >
-            Connect Wallet
-          </button>
-        ) : (
+        <w3m-button size="md" label="Connect" />
+        {account && (
           <button
             onClick={disconnectWallet}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md shadow-md hover:bg-red-700 transition-all font-medium text-sm w-full sm:w-auto"
