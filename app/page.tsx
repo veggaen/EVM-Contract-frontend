@@ -641,12 +641,28 @@ export default function Dashboard() {
 
       // Fetch minimal fast fields first and surface them immediately
       const launch0 = Number(await publicContract.launchBlock()) || 0;
+      // Derive current phase quickly so the UI title doesn't briefly show Phase 0
+      let derivedPhase = 0;
+      if (launch0 > 0 && block0 >= launch0) {
+        const since = Number(block0 - launch0);
+        if (since >= TOTAL_BLOCKS) {
+          derivedPhase = PHASES.length - 1;
+        } else {
+          for (let i = 0; i < PHASES.length; i++) {
+            if (since >= PHASES[i].start && since < PHASES[i].end) { derivedPhase = i; break; }
+          }
+        }
+      }
+      const isLaunchCompleteQuick = launch0 > 0 && block0 >= launch0 + TOTAL_BLOCKS;
       setContractData((prev) => ({
         ...prev,
         providerChainId: providerChainId0,
         blockNumber: monotonicBlockPublic0,
         launchBlock: launch0,
         codeSize: codeSize0,
+        currentPhase: derivedPhase,
+        totalTokensThisPhase: PHASES[derivedPhase].amount,
+        isLaunchComplete: isLaunchCompleteQuick,
       }));
       setHasPublicLight(true);
 
@@ -699,6 +715,23 @@ export default function Dashboard() {
       const contributorLists = await Promise.all(
         PHASES.map((_, i) => publicContract.getPhaseContributors(i))
       );
+
+      // Surface participant counts immediately (before per-address contribution reads)
+      try {
+        const totalSet = new Set<string>();
+        contributorLists.forEach((list) => {
+          (list as string[]).forEach((addr) => totalSet.add(addr));
+        });
+        const participantsCountQuick = (contributorLists[phase] as string[]).length;
+        if (!isConnected) {
+          setContractData(prev => ({
+            ...prev,
+            participantsCount: participantsCountQuick,
+            totalParticipants: totalSet.size,
+          }));
+        }
+      } catch {}
+
 
       for (let i = 0; i < PHASES.length; i++) {
         const totalContrib = phaseTotals0[i];
@@ -778,21 +811,22 @@ export default function Dashboard() {
         totalMinted: ethers.formatEther(minted),
         blockNumber: monotonicBlockPublic,
         launchBlock: launch,
-        userContributions: "0",
         totalContributions: ethers.formatEther(aggregatedTotalContrib),
-        mintablePhases: [],
-        mintedPhases: [],
-        estimatedReward: "0",
-        phaseContributions,
-        participantsCount: phaseParticipantsData.length + (account ? getPendingContributions(account).filter(p => (p.phase ?? phase) === phase).length : 0),
-        totalParticipants: allContributors.size,
+        // When connected, do NOT overwrite user-specific arrays used by "Your" charts
+        ...(isConnected ? {} : { phaseContributions }),
+        // When not connected, set participants counts; when connected, leave for user fetch to augment with pending
+        ...(isConnected ? {} : {
+          participantsCount: phaseParticipantsData.length,
+          totalParticipants: allContributors.size,
+        }),
         currentPhaseContributions: ethers.formatEther(currentPhaseTotalContribNow),
-        userCurrentPhaseContributions: "0",
+        // Do not touch user-only fields when connected to avoid flicker
+        ...(isConnected ? {} : { userCurrentPhaseContributions: "0", pendingPhaseParticipants: [] }),
         totalTokensThisPhase: PHASES[phase].amount,
-        phaseParticipants: phaseParticipantsData,
+        // Participants pie: prefer user fetch when connected (includes pending)
+        ...(isConnected ? {} : { phaseParticipants: phaseParticipantsData }),
         totalParticipantsData: Array.from(allContributors.values()).filter(d => d.value > 0),
-        pendingPhaseParticipants: account ? getPendingContributions(account) : [],
-        historicalData: historical,
+        ...(isConnected ? {} : { historicalData: historical }),
         historicalPhaseParticipants,
         historicalPhaseProgress,
         isLaunchComplete,
@@ -812,7 +846,7 @@ export default function Dashboard() {
     } finally {
       isFetchingPublicRef.current = false;
     }
-  }, [activeNetwork, publicProvider, account, contractData.blockNumber]);
+  }, [activeNetwork, publicProvider, contractData.blockNumber, isConnected]);
 
   const fetchUserContractData = useCallback(async () => {
     if (!contract || !provider || !account || isFetchingUserRef.current) return;
@@ -916,7 +950,7 @@ export default function Dashboard() {
 
         historical.push({
           phase: i.toString(),
-          contributions: parseFloat(ethers.formatEther(totalContrib)),
+          contributions: parseFloat(ethers.formatEther(userContrib)),
           minted: hasMintedPhase && userContrib > 0 ? (parseFloat(ethers.formatEther(userContrib)) / parseFloat(ethers.formatEther(totalContrib))) * parseFloat(PHASES[i].amount) : 0,
         });
       }
@@ -928,14 +962,32 @@ export default function Dashboard() {
       const totalTokensThisPhase = parseFloat(PHASES[phase].amount);
 
       const storedPending = getPendingContributions(account);
-      const updatedPending = storedPending.filter((p) => {
-        const phaseIndex = p.phase || 0;
+      // Keep only active-phase pending; drop older-phase items
+      let filteredPending = storedPending.filter((p) => {
+        const phaseIndex = p.phase ?? phase;
         const phaseEnd = launch + PHASES[phaseIndex].end;
         const isPhaseActive = block1 <= phaseEnd;
         return isPhaseActive && p.value > 0;
       });
 
-      const currentPhasePending = updatedPending.filter(p => p.phase === phase);
+      // Reconcile: if a pending tx is already mined, drop it from local storage
+      try {
+        const receipts = await Promise.all(
+          filteredPending.map((p) => (p.txHash ? provider.getTransactionReceipt(p.txHash).catch(() => null) : Promise.resolve(null)))
+        );
+        const stillPending: PieData[] = [];
+        for (let i = 0; i < filteredPending.length; i++) {
+          const r = receipts[i];
+          if (!r) stillPending.push(filteredPending[i]);
+        }
+        if (stillPending.length !== filteredPending.length) {
+          filteredPending = stillPending;
+          setPendingContributions(account, filteredPending);
+        }
+      } catch {}
+
+      // For current phase UI, compute totals including local pending for better estimate
+      const currentPhasePending = filteredPending.filter(p => (p.phase ?? phase) === phase);
       const totalPendingContrib = currentPhasePending.reduce((sum, p) => sum + p.value, 0);
       const totalPhaseContrib = parseFloat(ethers.formatEther(currentPhaseTotalContrib));
       const totalPhaseContribWithPending = totalPhaseContrib + totalPendingContrib;
@@ -944,19 +996,6 @@ export default function Dashboard() {
       const updatedEstimatedReward = totalPhaseContribWithPending > 0
         ? (totalUserContrib / totalPhaseContribWithPending) * totalTokensThisPhase
         : 0;
-
-      if (currentPhasePending.length > 0) {
-        const aggregatedPending: PieData = {
-          name: `${account.slice(0, 6)}...`,
-          value: totalPendingContrib,
-          address: account,
-          tokens: updatedEstimatedReward,
-          isPending: true,
-          phase,
-          txHash: currentPhasePending.map(p => p.txHash).join(","),
-        };
-        updatedPending.splice(0, updatedPending.length, ...updatedPending.filter(p => p.phase !== phase), aggregatedPending);
-      }
 
       const updatedPhaseParticipants = phaseParticipantsData.map(p => {
         if (p.address === account) {
@@ -994,14 +1033,14 @@ export default function Dashboard() {
         totalTokensThisPhase: PHASES[phase].amount,
         phaseParticipants: updatedPhaseParticipants,
         totalParticipantsData: Array.from(allContributors.values()).filter(d => d.value > 0),
-        pendingPhaseParticipants: updatedPending,
+        pendingPhaseParticipants: filteredPending,
         historicalData: historical,
         historicalPhaseParticipants,
         historicalPhaseProgress,
         isLaunchComplete,
         codeSize: codeSize1 || prev.codeSize,
       }));
-      setPendingContributions(account, updatedPending);
+      setPendingContributions(account, filteredPending);
       setHasInitialUserFetch(true);
       setUserFailureCount(0);
       setErrorMessage(null);
@@ -1128,6 +1167,29 @@ export default function Dashboard() {
       }
     }
   }, [isConnected, errorMessage]);
+
+  // Immediately clear user-only fields when disconnecting or when the account changes,
+  // so we don't show stale pending/estimates from the previous account
+  useEffect(() => {
+    if (!isConnected || !account) {
+      setContractData(prev => ({
+        ...prev,
+        userContributions: "0",
+        userCurrentPhaseContributions: "0",
+        estimatedReward: "0",
+        mintablePhases: [],
+        mintedPhases: [],
+        pendingPhaseParticipants: [],
+      }));
+      return;
+    }
+    // On account switch, re-seed pending from this account's storage immediately
+    setContractData(prev => ({
+      ...prev,
+      pendingPhaseParticipants: getPendingContributions(account),
+    }));
+  }, [isConnected, account]);
+
 
   useEffect(() => {
     if (isSuccess && txData && contract && provider && account && txData !== lastTxHash) {
@@ -1456,7 +1518,7 @@ export default function Dashboard() {
               transition={{ duration: 0.5 }}
             >
               <h2 className="text-2xl font-bold text-indigo-400 mb-4">
-                {contractData.isLaunchComplete ? "Launch Complete" : `Phase ${contractData.currentPhase} Progress`}
+                {!hasPublicLight ? "Phase Progress" : (contractData.isLaunchComplete ? "Launch Complete" : `Phase ${contractData.currentPhase} Progress`)}
               </h2>
               {contractData.isLaunchComplete ? (
                 <p className="text-gray-300">The token launch has concluded after {blocksSinceLaunch} blocks.</p>
@@ -1567,13 +1629,13 @@ export default function Dashboard() {
                 <div>Total Contributions:</div>
                 <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalContributions} /> ETH</>) : (<div className="h-4 w-28 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Total Participants:</div>
-                <div>{hasPublicDetails ? contractData.totalParticipants : (<div className="h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                <div>{hasPublicLight ? contractData.totalParticipants : (<div className="h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Phase Tokens:</div>
                 <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</>) : (<div className="h-4 w-20 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Phase Contributions:</div>
                 <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</>) : (<div className="h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 <div>Phase Participants:</div>
-                <div>{hasPublicDetails ? contractData.participantsCount : (<div className="h-4 w-10 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                <div>{hasPublicLight ? contractData.participantsCount : (<div className="h-4 w-10 bg-gray-700/60 rounded animate-pulse" />)}</div>
               </div>
             </motion.div>
 
