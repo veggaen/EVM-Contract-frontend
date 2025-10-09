@@ -16,6 +16,8 @@
     "@reown/appkit-wallet-button": "^1.8.8",
     "@tanstack/react-query": "^5.90.2",
     "@types/react-toastify": "^4.0.2",
+    "@vercel/analytics": "^1.5.0",
+    "@vercel/speed-insights": "^1.2.0",
     "@wagmi/connectors": "^5.7.7",
     "@wagmi/core": "^2.16.4",
     "ethers": "^6.15.0",
