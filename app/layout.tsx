@@ -3,21 +3,26 @@
 import "./globals.css";
 import { motion } from "framer-motion";
 import AppKitProvider from "../lib/AppKitProvider";
-
+import { ThemeProvider } from "next-themes";
+import React from "react";
 
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-gray-900 text-white">
-        <AppKitProvider>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-            {children}
-          </motion.div>
-          <footer className="text-center text-gray-400 py-4 border-t border-gray-800 bg-gray-800">
-            <p className="text-sm">MPM Token Dashboard v1.0 | Powered by NextJS</p>
-          </footer>
-        </AppKitProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-screen text-[color:var(--foreground)] bg-[color:var(--background)]">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <AppKitProvider>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {children}
+              </div>
+            </motion.div>
+            <footer className="text-center text-gray-400 py-4 border-t border-white/10 bg-black/30 backdrop-blur-xl">
+              <p className="text-sm">MPM Token Dashboard | Powered by Next.js</p>
+            </footer>
+          </AppKitProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

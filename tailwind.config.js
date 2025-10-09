@@ -1,19 +1,23 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
-    "./app/**/*.{js,ts,jsx,tsx}", // ✅ Includes Next.js App Router
-    "./pages/**/*.{js,ts,jsx,tsx}", // ✅ Includes traditional Next.js pages
-    "./components/**/*.{js,ts,jsx,tsx}", // ✅ Includes all components
+    "./app/**/*.{js,ts,jsx,tsx}",
+    "./pages/**/*.{js,ts,jsx,tsx}",
+    "./components/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
       colors: {
-        primary: "#4F46E5", // Custom Primary Color
-        secondary: "#6366F1", // Custom Secondary Color
-        background: "#F9FAFB", // Custom Background Color
+        primary: "#4F46E5",
+        secondary: "#6366F1",
+        background: "#0B1020",
       },
       boxShadow: {
-        "xl-dark": "0px 10px 30px rgba(0, 0, 0, 0.3)", // Enhanced Shadow
+        "xl-dark": "0px 10px 30px rgba(0, 0, 0, 0.3)",
+      },
+      backdropBlur: {
+        xl: '24px',
       },
     },
   },

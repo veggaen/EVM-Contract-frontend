@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ethers } from "ethers";
-import { FaEthereum, FaChartLine, FaCoins, FaUsers, FaChevronDown, FaChevronUp } from "react-icons/fa";
+import { FaEthereum, FaChartLine, FaCoins, FaUsers, FaChevronDown, FaChevronUp, FaAward, FaStream } from "react-icons/fa";
 import Navbar from "@/components/Navbar";
 import {
   useAccount,
@@ -84,10 +84,11 @@ const abbreviateNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-const ToggleDecimals = ({ value }: { value: string }) => {
+const ToggleDecimals = ({ value, decimals = 4 }: { value: string; decimals?: number }) => {
   const [showFull, setShowFull] = useState(false);
-  const numericValue = parseFloat(value);
-  const displayValue = numericValue < 1 ? value : (showFull ? value : numericValue.toFixed(2));
+  const numericValue = Number(value ?? 0);
+  const compact = Number.isFinite(numericValue) ? numericValue.toFixed(decimals) : value;
+  const displayValue = showFull ? value : compact;
 
   return (
     <span
@@ -269,7 +270,7 @@ const PieChartCard = ({
 
   return (
     <motion.div
-      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700 hover:shadow-2xl transition-shadow duration-300"
+      className="glass p-6 ring-white/10 hover:shadow-2xl transition-shadow duration-300"
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
@@ -316,21 +317,26 @@ const PieChartCard = ({
 };
 
 const MintedTokensChart = ({ data }: { data: HistoricalData[] }) => {
-  const formattedData = data.map(item => ({
+  const formattedData = useMemo(() => data.map(item => ({
     phase: item.phase === "0" ? "Phase 0" : `Phase ${item.phase}`,
     minted: item.minted,
-  }));
+  })), [data]);
+  const [chartData, setChartData] = useState(formattedData);
+  useEffect(() => {
+    const t = setTimeout(() => setChartData(formattedData), 250);
+    return () => clearTimeout(t);
+  }, [formattedData]);
 
   return (
     <motion.div
-      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+      className="glass p-6 ring-white/10"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
       <h3 className="text-xl font-semibold text-white mb-4">Your Minted Tokens</h3>
       <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={formattedData}>
+        <LineChart data={chartData}>
           <XAxis dataKey="phase" tick={{ fontSize: 12, fill: "#fff" }} />
           <Line type="monotone" dataKey="minted" stroke="#10b981" strokeWidth={2} dot={{ fill: "#6ee7b7" }} name="Minted (MMM)" />
           <Tooltip contentStyle={{ backgroundColor: "#1f2937", border: "none", color: "#fff" }} />
@@ -342,21 +348,26 @@ const MintedTokensChart = ({ data }: { data: HistoricalData[] }) => {
 };
 
 const ContributionsChart = ({ data }: { data: HistoricalData[] }) => {
-  const formattedData = data.map(item => ({
+  const formattedData = useMemo(() => data.map(item => ({
     phase: item.phase === "0" ? "Phase 0" : `Phase ${item.phase}`,
     contributions: item.contributions,
-  }));
+  })), [data]);
+  const [chartData, setChartData] = useState(formattedData);
+  useEffect(() => {
+    const t = setTimeout(() => setChartData(formattedData), 250);
+    return () => clearTimeout(t);
+  }, [formattedData]);
 
   return (
     <motion.div
-      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+      className="glass p-6 ring-white/10"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
       <h3 className="text-xl font-semibold text-white mb-4">Your Contributions</h3>
       <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={formattedData}>
+        <LineChart data={chartData}>
           <XAxis dataKey="phase" tick={{ fontSize: 12, fill: "#fff" }} />
           <Line type="monotone" dataKey="contributions" stroke="#4f46e5" strokeWidth={2} dot={{ fill: "#818cf8" }} name="Contributions (ETH)" />
           <Tooltip contentStyle={{ backgroundColor: "#1f2937", border: "none", color: "#fff" }} />
@@ -386,7 +397,7 @@ const HistoricalPhaseCard = ({
 
   return (
     <motion.div
-      className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+      className="glass p-6 ring-white/10"
       initial={{ opacity: 0, y: 50 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
@@ -404,18 +415,35 @@ const HistoricalPhaseCard = ({
           </p>
           <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
             <motion.div
-              className="bg-indigo-500 h-full rounded-full"
+              className="bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 h-full rounded-full"
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}
               transition={{ duration: 1 }}
             />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>Total Tokens:</div>
-          <div><ToggleDecimals value={totalTokens} /> MMM</div>
-          <div>Total Participants:</div>
-          <div>{participants.length}</div>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <FaCoins className="text-indigo-300" />
+              <span>Total Tokens</span>
+            </div>
+            <div className="mt-1.5 font-mono text-white"><ToggleDecimals value={totalTokens} /> MMM</div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-3">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <FaUsers className="text-blue-300" />
+              <span>Participants</span>
+            </div>
+            <div className="mt-1.5 font-mono text-white">{participants.length}</div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-gradient-to-br from-fuchsia-500/10 to-indigo-500/10 p-3">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <FaStream className="text-fuchsia-300" />
+              <span>Blocks</span>
+            </div>
+            <div className="mt-1.5 font-mono text-white">{blocksPassed} / {totalBlocks}</div>
+          </div>
         </div>
       </div>
       {isExpanded && (
@@ -520,6 +548,8 @@ export default function Dashboard() {
   const [userFailureCount, setUserFailureCount] = useState(0);
   const [hasPublicLight, setHasPublicLight] = useState(false);
   const [hasPublicDetails, setHasPublicDetails] = useState(false);
+  const [showMoreTop, setShowMoreTop] = useState(false);
+
   const isFetchingPublicRef = useRef(false);
   const isFetchingUserRef = useRef(false);
 
@@ -561,6 +591,7 @@ export default function Dashboard() {
           const userContrib = parseFloat(contrib);
           const totalContrib = contractData.historicalData[i]?.contributions || 0;
           const phaseTokens = parseFloat(PHASES[i].amount);
+
           const tokens =
             totalContrib > 0 && contractData.mintedPhases.includes(i)
               ? (userContrib / totalContrib) * phaseTokens
@@ -576,6 +607,14 @@ export default function Dashboard() {
   const totalUserContributions = useMemo(() => {
     return contractData.phaseContributions.reduce((sum, contrib) => sum + parseFloat(contrib), 0);
   }, [contractData.phaseContributions]);
+
+  // Debounce pie data to avoid visible twitch on quick successive updates
+  const [stablePieData, setStablePieData] = useState(pieData);
+  useEffect(() => {
+    const t = setTimeout(() => setStablePieData(pieData), 250);
+    return () => clearTimeout(t);
+  }, [pieData]);
+
 
   const totalMintableTokens = useMemo(() => {
     return contractData.mintablePhases.reduce((sum, phase) => {
@@ -1287,7 +1326,7 @@ export default function Dashboard() {
 
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white overflow-x-hidden">
+    <div className="min-h-screen bg-gray-900 text-white overflow-x-hidden pt-24 md:pt-28">
       <Navbar
         account={account}
         provider={provider}
@@ -1324,33 +1363,31 @@ export default function Dashboard() {
             </a>
           </div>
         </div>
-        <div className="mt-6 w-full max-w-4xl mx-auto">
-          <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-4 md:p-6 rounded-2xl shadow-xl border border-gray-700">
-            <h3 className="text-lg font-semibold text-indigo-300 mb-3">Network Diagnostics</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="text-gray-400">Current block</div>
-                <div className="font-mono text-white">{hasPublicLight ? contractData.blockNumber : <span className="inline-block h-4 w-16 bg-gray-700/60 rounded animate-pulse" />}</div>
+        <div className="mt-8 mb-10 w-full max-w-6xl mx-auto">
+          <div className="glass p-4 md:p-6 ring-white/10">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="w-full md:max-w-2xl">
+                <h3 className="text-lg font-semibold text-indigo-300 mb-2">
+                  {contractData.isLaunchComplete ? 'Launch Complete' : `Phase ${contractData.currentPhase} Progress`}
+                </h3>
+                {/* {!contractData.isLaunchComplete && (
+                  <>
+                    <p className="text-sm text-gray-300 mb-2">Total Progress: {Math.round(launchPhaseProgress)}% ({blocksSinceLaunch} / {TOTAL_BLOCKS} blocks)</p>
+                    <div className="bg-gray-700/60 h-3 rounded-full overflow-hidden">
+                      <motion.div
+                        className="bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 h-full rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${launchPhaseProgress}%` }}
+                        transition={{ duration: 0.8 }}
+                      />
+                    </div>
+                  </>
+                )} */}
               </div>
-              <div>
-                <div className="text-gray-400">Provider chainId</div>
-                <div className="font-mono text-white">{hasPublicLight ? (contractData.providerChainId || "-") : <span className="inline-block h-4 w-12 bg-gray-700/60 rounded animate-pulse" />}</div>
-              </div>
-              <div>
-                <div className="text-gray-400">launchBlock</div>
-                <div className="font-mono text-white">{hasPublicLight ? contractData.launchBlock : <span className="inline-block h-4 w-16 bg-gray-700/60 rounded animate-pulse" />}</div>
-              </div>
-              <div>
-                <div className="text-gray-400">blocksSinceLaunch</div>
-                <div className="font-mono text-white">{hasPublicLight ? blocksSinceLaunch : <span className="inline-block h-4 w-20 bg-gray-700/60 rounded animate-pulse" />}</div>
-              </div>
-              <div>
-                <div className="text-gray-400">Contract code size</div>
-                <div className="font-mono text-white">{hasPublicLight ? `${contractData.codeSize} bytes` : <span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />}</div>
-              </div>
-              <div>
-                <div className="text-gray-400">Token</div>
-                <div className="font-mono text-white">{hasPublicLight ? ((contractData.tokenName && contractData.tokenSymbol) ? `${contractData.tokenName} (${contractData.tokenSymbol})` : "-") : <span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />}</div>
+              <div className="w-full md:w-auto">
+                <a href="#participate" className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 font-semibold">
+                  Participate
+                </a>
               </div>
             </div>
           </div>
@@ -1361,7 +1398,7 @@ export default function Dashboard() {
         {contractData.isLaunchComplete && (
           <div className="mb-12">
             <h2 className="text-3xl font-bold text-white mb-8">Launch History</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
               {contractData.historicalPhaseProgress.map((p) => (
                 <HistoricalPhaseCard
                   key={p.phase}
@@ -1377,81 +1414,12 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          <div className="space-y-8">
-            <motion.div
-              className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
-              initial={{ opacity: 0, x: -50 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h2 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center">
-                <FaEthereum className="mr-2" /> Participate
-              </h2>
-              <input
-                type="number"
-                value={ethAmount}
-                onChange={(e) => setEthAmount(e.target.value)}
-                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 transition-all"
-                step="0.01"
-                min="0.001"
-                placeholder="Enter ETH amount (min 0.001)"
-                disabled={!isConnected || isSending || contractData.isLaunchComplete}
-              />
-              {txMessage && (
-                <p className="text-sm mt-2 text-indigo-300">{txMessage}</p>
-              )}
-              {(() => {
-                const showPublicError = publicFailureCount >= 2 && !hasPublicLight;
-                const showUserError = isConnected && userFailureCount >= 2 && !hasInitialUserFetch && !contract;
-                if (errorMessage && (showPublicError || showUserError)) {
-                  return (
-                    <p className={`text-sm mt-2 ${errorMessage.includes("accepted") ? "text-green-400" : "text-red-400"}`}>
-                      {errorMessage}
-                    </p>
-                  );
-                }
-                if (!errorMessage && (showPublicError || showUserError)) {
-                  return (
-                    <p className="text-sm mt-2 text-red-400">
-                      {showUserError
-                        ? "Error fetching user blockchain data. Please try refreshing."
-                        : "Error fetching public blockchain data. Please try refreshing."}
-                    </p>
-                  );
-                }
-                return null;
-              })()}
-              <button
-                onClick={sendEth}
-                disabled={!isConnected || isSending || contractData.isLaunchComplete}
-                className="mt-4 w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:bg-gray-600 transition-all font-semibold"
-              >
-                {isSending ? "Processing..." : "Send ETH"}
-              </button>
-              {isConnected && contractData.pendingPhaseParticipants.length > 0 && (
-                <div className="mt-4 text-sm">
-                  <p className="text-gray-300 font-semibold">Pending Contributions:</p>
-                  {contractData.pendingPhaseParticipants.map((p, index) => (
-                    <div key={p.txHash || index} className="mt-2">
-                      <p>{p.address?.slice(0, 6)}...{p.address?.slice(-4)}</p>
-                      <p>Contribution: <ToggleDecimals value={p.value.toString()} /> ETH</p>
-                      <p>
-                        Estimated Reward: <ToggleDecimals value={p.tokens!.toString()} /> MMM
-                        {p.isPending && " (Pending)"}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {!isConnected && (
-                <p className="mt-4 text-gray-400 text-sm">Connect wallet to participate.</p>
-              )}
-            </motion.div>
-
+        <div className="max-w-6xl mx-auto flex-col gap-10 space-y-10 items-start justify-center">
+          <div className="grid md:grid-cols-2 gap-8 items-start justify-center">
+            <div id="participate" className="glass p-6 ring-white/10 space-y-8 h-full">
             {isConnected && (
               <motion.div
-                className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+                className="pt-6 mt-6 border-t border-white/10"
                 initial={{ opacity: 0, x: -50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.2 }}
@@ -1508,11 +1476,95 @@ export default function Dashboard() {
                 )}
               </motion.div>
             )}
+            <motion.div
+              className="space-y-2"
+              initial={{ opacity: 0, x: -50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <h2 className="text-2xl font-bold text-indigo-400 flex items-center">
+                <FaEthereum className="mr-2" /> Participate
+              </h2>
+              <input
+                type="number"
+                value={ethAmount}
+                onChange={(e) => setEthAmount(e.target.value)}
+                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 transition-all"
+                step="0.01"
+                min="0.001"
+                placeholder="Enter ETH amount (min 0.001)"
+                disabled={!isConnected || isSending || contractData.isLaunchComplete}
+              />
+              <div className="mt-3 flex gap-2 flex-wrap">
+                {[0.01, 0.05, 0.1].map((v) => (
+                  <button
+                    type="button"
+                    key={v}
+                    onClick={() => setEthAmount(v.toString())}
+                    className="px-3 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition"
+                    disabled={!isConnected || isSending || contractData.isLaunchComplete}
+                  >
+                    {v} ETH
+                  </button>
+                ))}
+              </div>
+              {txMessage && (
+                <p className="text-sm mt-2 text-indigo-300">{txMessage}</p>
+              )}
+              {(() => {
+                const showPublicError = publicFailureCount >= 2 && !hasPublicLight;
+                const showUserError = isConnected && userFailureCount >= 2 && !hasInitialUserFetch && !contract;
+                if (errorMessage && (showPublicError || showUserError)) {
+                  return (
+                    <p className={`text-sm mt-2 ${errorMessage.includes("accepted") ? "text-green-400" : "text-red-400"}`}>
+                      {errorMessage}
+                    </p>
+                  );
+                }
+                if (!errorMessage && (showPublicError || showUserError)) {
+                  return (
+                    <p className="text-sm mt-2 text-red-400">
+                      {showUserError
+                        ? "Error fetching user blockchain data. Please try refreshing."
+                        : "Error fetching public blockchain data. Please try refreshing."}
+                    </p>
+                  );
+                }
+                return null;
+              })()}
+              <button
+                onClick={sendEth}
+                disabled={!isConnected || isSending || contractData.isLaunchComplete}
+                className="mt-4 w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:bg-gray-600 transition-all font-semibold"
+              >
+                {isSending ? "Processing..." : "Send ETH"}
+              </button>
+              {isConnected && contractData.pendingPhaseParticipants.length > 0 && (
+                <div className="mt-4 text-sm">
+                  <p className="text-gray-300 font-semibold">Pending Contributions:</p>
+                  {contractData.pendingPhaseParticipants.map((p, index) => (
+                    <div key={p.txHash || index} className="mt-2">
+                      <p>{p.address?.slice(0, 6)}...{p.address?.slice(-4)}</p>
+                      <p>Contribution: <ToggleDecimals value={p.value.toString()} /> ETH</p>
+                      <p>
+                        Estimated Reward: <ToggleDecimals value={p.tokens!.toString()} /> MMM
+                        {p.isPending && " (Pending)"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!isConnected && (
+                <p className="mt-4 text-gray-400 text-sm">Connect wallet to participate.</p>
+              )}
+            </motion.div>
+
+          
           </div>
 
           <div className="space-y-8">
             <motion.div
-              className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+              className="space-y-4"
               initial={{ opacity: 0, y: 50 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
@@ -1547,7 +1599,7 @@ export default function Dashboard() {
                         </p>
                         <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
                           <motion.div
-                            className="bg-indigo-500 h-full rounded-full"
+                            className="bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 h-full rounded-full"
                             initial={{ width: 0 }}
                             animate={{ width: `${launchPhaseProgress}%` }}
                             transition={{ duration: 1 }}
@@ -1567,55 +1619,81 @@ export default function Dashboard() {
                       </div>
                     </>
                   )}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>Total Tokens:</div>
-                    <div><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3">
+                      <div className="flex items-center gap-2 text-xs text-gray-300">
+                        <FaCoins className="text-indigo-300" />
+                        <span>Total Tokens</span>
+                      </div>
+                      <div className="mt-1.5 font-mono text-white"><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</div>
+                    </div>
                     {isConnected && userParticipated && (
                       <>
-                        <div>Your Reward:</div>
-                        <div><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
-                        <div>Your Contribution:</div>
-                        <div><ToggleDecimals value={contractData.userCurrentPhaseContributions} /> ETH</div>
+                        <div className="rounded-xl border border-white/10 bg-gradient-to-br from-amber-500/10 to-pink-500/10 p-3">
+                          <div className="flex items-center gap-2 text-xs text-gray-300">
+                            <FaAward className="text-amber-300" />
+                            <span>Your Reward</span>
+                          </div>
+                          <div className="mt-1.5 font-mono text-white"><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3">
+                          <div className="flex items-center gap-2 text-xs text-gray-300">
+                            <FaEthereum className="text-emerald-300" />
+                            <span>Your Contribution</span>
+                          </div>
+                          <div className="mt-1.5 font-mono text-white"><ToggleDecimals value={contractData.userCurrentPhaseContributions} /> ETH</div>
+                        </div>
                       </>
                     )}
-                    <div>Participants:</div>
-                    <div>{contractData.participantsCount}</div>
-                    <div>Phase Start:</div>
-                    <div>{phaseStartBlock}</div>
-                    <div>Phase End:</div>
-                    <div>{phaseEndBlock}</div>
+                    <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-3">
+                      <div className="flex items-center gap-2 text-xs text-gray-300">
+                        <FaUsers className="text-blue-300" />
+                        <span>Participants</span>
+                      </div>
+                      <div className="mt-1.5 font-mono text-white">{contractData.participantsCount}</div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-gradient-to-br from-fuchsia-500/10 to-indigo-500/10 p-3 lg:col-span-2">
+                      <div className="flex items-center gap-2 text-xs text-gray-300">
+                        <FaStream className="text-fuchsia-300" />
+                        <span>Blocks</span>
+                      </div>
+                      <div className="font-mono text-white">{phaseStartBlock} &rarr; {phaseEndBlock}</div>
+                    </div>
                   </div>
                 </div>
               )}
             </motion.div>
 
-            {!contractData.isLaunchComplete ? (
-              <PieChartCard
-                title="Participants"
-                icon={<FaUsers className="text-blue-400" />}
-                data={contractData.phaseParticipants}
-                totalTokens={contractData.totalTokensThisPhase}
-                currentPhase={contractData.currentPhase}
-              />
-            ) : (
-              <div className="gap-4 flex flex-col">
-                {contractData.historicalPhaseParticipants.slice(0, 3).map((participants, index) => (
-                  <PieChartCard
-                    key={index}
-                    title=""
-                    icon={<></>}
-                    data={participants}
-                    totalTokens={PHASES[index].amount}
-                    currentPhase={index}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="pt-6 mt-6 border-t border-white/10">
+              {!contractData.isLaunchComplete ? (
+                <PieChartCard
+                  title="Participants"
+                  icon={<FaUsers className="text-blue-400" />}
+                  data={contractData.phaseParticipants}
+                  totalTokens={contractData.totalTokensThisPhase}
+                  currentPhase={contractData.currentPhase}
+                />
+              ) : (
+                <div className="gap-4 flex flex-col">
+                  {contractData.historicalPhaseParticipants.slice(0, 3).map((participants, index) => (
+                    <PieChartCard
+                      key={index}
+                      title=""
+                      icon={<></>}
+                      data={participants}
+                      totalTokens={PHASES[index].amount}
+                      currentPhase={index}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           </div>
 
-          <div className="space-y-8">
+          <div className="glass p-6 ring-white/10 space-y-8">
             <motion.div
-              className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700"
+              className="pt-6 mt-6 border-t border-white/10"
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
@@ -1623,58 +1701,197 @@ export default function Dashboard() {
               <h2 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center">
                 <FaChartLine className="mr-2" /> Project Stats
               </h2>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>Total Minted:</div>
-                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalMinted} /> MMM</>) : (<div className="h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                <div>Total Contributions:</div>
-                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalContributions} /> ETH</>) : (<div className="h-4 w-28 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                <div>Total Participants:</div>
-                <div>{hasPublicLight ? contractData.totalParticipants : (<div className="h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                <div>Phase Tokens:</div>
-                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</>) : (<div className="h-4 w-20 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                <div>Phase Contributions:</div>
-                <div>{hasPublicLight ? (<><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</>) : (<div className="h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                <div>Phase Participants:</div>
-                <div>{hasPublicLight ? contractData.participantsCount : (<div className="h-4 w-10 bg-gray-700/60 rounded animate-pulse" />)}</div>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-300">
+                    <FaCoins className="text-indigo-300" />
+                    <span>Total Minted</span>
+                  </div>
+                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.totalMinted} /> MMM</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-300">
+                    <FaEthereum className="text-emerald-300" />
+                    <span>Total Contributions</span>
+                  </div>
+                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.totalContributions} /> ETH</>) : (<span className="inline-block h-4 w-28 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-300">
+                    <FaUsers className="text-blue-300" />
+                    <span>Total Participants</span>
+                  </div>
+                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? contractData.totalParticipants : (<span className="inline-block h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-300">
+                    <FaCoins className="text-indigo-300" />
+                    <span>Phase Tokens</span>
+                  </div>
+                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</>) : (<span className="inline-block h-4 w-20 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-300">
+                    <FaEthereum className="text-emerald-300" />
+                    <span>Phase Contributions</span>
+                  </div>
+                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-300">
+                    <FaUsers className="text-blue-300" />
+                    <span>Phase Participants</span>
+                  </div>
+                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? contractData.participantsCount : (<span className="inline-block h-4 w-10 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                </div>
               </div>
             </motion.div>
 
-            {hasPublicDetails ? (
-              <PieChartCard
-                title="Global Contributions"
-                icon={<FaUsers className="text-blue-400" />}
-                data={contractData.totalParticipantsData}
-                totalTokens={contractData.totalMinted}
-              />
-            ) : (
-              <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl border border-gray-700">
-                <div className="h-6 w-48 bg-gray-700/60 rounded animate-pulse mb-4" />
-                <div className="h-48 w-full bg-gray-700/40 rounded animate-pulse" />
-              </div>
-            )}
+            <div className="pt-6 mt-6 border-t border-white/10">
+              {hasPublicDetails ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div>
+                    <PieChartCard
+                      title="Global Contributions"
+                      icon={<FaUsers className="text-blue-400" />}
+                      data={contractData.totalParticipantsData}
+                      totalTokens={contractData.totalMinted}
+                    />
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <h3 className="text-sm font-semibold text-gray-200 mb-3">Top Contributors</h3>
+                    {(() => {
+                      const total = parseFloat(contractData.totalContributions) || 0;
+                      const sliceCount = showMoreTop ? 20 : 5;
+                      const top = [...contractData.totalParticipantsData]
+                        .sort((a, b) => b.value - a.value)
+                        .slice(0, sliceCount);
+                      return (
+                        <>
+                          <ul className="space-y-3">
+                            {top.map((p, idx) => (
+                              <li key={idx}>
+                                <div className="flex items-center justify-between text-sm">
+                                  <button
+                                    type="button"
+                                    className="font-mono text-gray-300 hover:text-white hover:underline cursor-pointer"
+                                    title="Click to copy address"
+                                    onClick={async () => {
+                                      try {
+                                        await navigator.clipboard.writeText(p.address || p.name);
+                                      } catch {}
+                                    }}
+                                  >
+                                    {p.address ? `${p.address.slice(0, 6)}...${p.address.slice(-4)}` : p.name}
+                                  </button>
+                                  <span className="font-mono text-white">
+                                    {p.tokens !== undefined ? `${abbreviateNumber(p.tokens)} MMM` : `${p.value.toFixed(3)} ETH`}
+                                  </span>
+                                </div>
+                                {total > 0 && (
+                                  <div className="mt-2 h-2 rounded-full bg-gray-700/60 overflow-hidden">
+                                    <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{ width: `${Math.min(100, (p.value / total) * 100).toFixed(1)}%` }} />
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="mt-4 text-right">
+                            <button
+                              type="button"
+                              className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition"
+                              onClick={() => setShowMoreTop(v => !v)}
+                            >
+                              {showMoreTop ? 'Show less' : 'Show more'}
+                            </button>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="h-6 w-48 bg-gray-700/60 rounded animate-pulse mb-4" />
+                  <div className="h-48 w-full bg-gray-700/40 rounded animate-pulse" />
+                </div>
+              )}
+            </div>
 
-            <PieChartCard
-              title="Supply Details"
-              icon={<FaCoins className="text-yellow-400" />}
-              data={[
-                { name: "Realized", value: parseFloat(contractData.totalMinted), tokens: parseFloat(contractData.totalMinted) },
-                { name: "Unrealized", value: TOTAL_SUPPLY - parseFloat(contractData.totalMinted), tokens: TOTAL_SUPPLY - parseFloat(contractData.totalMinted) },
-              ]}
-              totalTokens={TOTAL_SUPPLY.toString()}
-              colors={["#4f46e5", "#d1d5db"]}
-              extraText={`Total Minted: ${abbreviateNumber(parseFloat(contractData.totalMinted))} MMM`}
-            />
+            <div className="pt-6 mt-6 border-t border-white/10">
+              <div className="mb-3 flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                  <span className="text-xs text-gray-300">Realized</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-gray-300" />
+                  <span className="text-xs text-gray-300">Unrealized</span>
+                </div>
+              </div>
+              <div className="mb-4">
+                {(() => {
+                  const realized = parseFloat(contractData.totalMinted) || 0;
+                  const pct = Math.min(100, Math.max(0, (realized / TOTAL_SUPPLY) * 100));
+                  return (
+                    <div className="h-2 rounded-full bg-gray-700/60 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{ width: `${pct.toFixed(1)}%` }} />
+                    </div>
+                  );
+                })()}
+              </div>
+              <PieChartCard
+                title="Supply Details"
+                icon={<FaCoins className="text-yellow-400" />}
+                data={[
+                  { name: "Realized", value: parseFloat(contractData.totalMinted), tokens: parseFloat(contractData.totalMinted) },
+                  { name: "Unrealized", value: TOTAL_SUPPLY - parseFloat(contractData.totalMinted), tokens: TOTAL_SUPPLY - parseFloat(contractData.totalMinted) },
+                ]}
+                totalTokens={TOTAL_SUPPLY.toString()}
+                colors={["#4f46e5", "#d1d5db"]}
+                extraText={`Total Minted: ${abbreviateNumber(parseFloat(contractData.totalMinted))} MMM`}
+              />
+            </div>
           </div>
         </div>
 
         {isConnected && (
           <div className="mt-12">
             <h2 className="text-3xl font-bold text-white mb-8">Your History</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+              <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3">
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <FaEthereum className="text-emerald-300" />
+                  <span>Total Contributions</span>
+                </div>
+                <div className="mt-1.5 font-mono text-white">{totalUserContributions.toFixed(4)} ETH</div>
+              </div>
+              {(() => {
+                const totalMintedUser = (contractData.historicalData || []).reduce((s, x) => s + (x.minted || 0), 0);
+                return (
+                  <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3">
+                    <div className="flex items-center gap-2 text-xs text-gray-300">
+                      <FaCoins className="text-indigo-300" />
+                      <span>Your Realized MMM</span>
+                    </div>
+                    <div className="mt-1.5 font-mono text-white">{abbreviateNumber(totalMintedUser)} MMM</div>
+                  </div>
+                );
+              })()}
+              <div className="rounded-xl border border-white/10 bg-gradient-to-br from-amber-500/10 to-pink-500/10 p-3">
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <FaCoins className="text-amber-300" />
+                  <span>Estimated Reward</span>
+                </div>
+                <div className="mt-1.5 font-mono text-white"><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               <PieChartCard
                 title="Your Contributions"
                 icon={<FaEthereum className="text-indigo-400" />}
-                data={pieData}
+                data={stablePieData}
                 extraText={`Total Contributions: ${totalUserContributions.toFixed(4)} ETH`}
               />
               <MintedTokensChart data={contractData.historicalData} />
@@ -1699,6 +1916,7 @@ export default function Dashboard() {
                   participants={contractData.historicalPhaseParticipants[p.phase]}
                 />
               ))}
+
           </div>
         )}
       </div>
