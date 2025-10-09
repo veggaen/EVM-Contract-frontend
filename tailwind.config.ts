@@ -15,6 +15,15 @@ module.exports = {
       boxShadow: {
         "xl-dark": "0px 10px 30px rgba(0, 0, 0, 0.3)", // Enhanced Shadow
       },
+      keyframes: {
+        "trail": {
+          "0%": { "--angle": "0deg" },
+          "100%": { "--angle": "360deg" },
+        },
+      },
+    },
+    animation: {
+      "trail": "trail var(--duration) linear infinite",
     },
   },
   plugins: [],

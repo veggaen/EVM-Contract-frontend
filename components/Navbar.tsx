@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { FaEthereum } from "react-icons/fa";
-import { FiLogOut, FiCopy, FiCheck } from "react-icons/fi";
+import { FiLogOut } from "react-icons/fi";
 import { ethers } from "ethers";
 import { sepolia, holesky, mainnet } from "wagmi/chains";
 import { motion } from "framer-motion";
@@ -25,7 +25,7 @@ export default function Navbar({
   setActiveNetwork,
 }: NavbarProps) {
   const [balance, setBalance] = useState<string | null>(null); // Start as null to avoid SSR mismatch
-  const [copied, setCopied] = useState<boolean>(false);
+  //const [copied, setCopied] = useState<boolean>(false);
   const [isMounted, setIsMounted] = useState(false); // Track client-side mounting
   const [lastAccount, setLastAccount] = useState<string | undefined>(undefined);
 
@@ -49,16 +49,17 @@ export default function Navbar({
     if (account) setLastAccount(account);
     if (account && provider) {
       fetchBalance();
+      console.log("Fetching balance for account:", balance, `${lastAccount}`);
     }
-  }, [account, provider, fetchBalance]);
+  }, [account, provider, fetchBalance, balance, lastAccount]);
 
-  const copyToClipboard = async () => {
+  /* const copyToClipboard = async () => {
     if (account) {
       await navigator.clipboard.writeText(account);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
+  }; */
 
   const handleNetworkChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newNetworkId = Number(event.target.value);
@@ -85,19 +86,25 @@ export default function Navbar({
       const delta = y - lastY.current;
       setScrolled(y > 8);
 
-      const tickThreshold = 12; // ignore micro scrolls
+      const isDesktop = window.innerWidth >= 768; // Tailwind md breakpoint
+      const tickThreshold = isDesktop ? 12 : 8;
+      const startYThreshold = isDesktop ? 160 : 80;
+      const requiredTicks = isDesktop ? 4 : 3;
+      const requiredDistance = isDesktop ? 120 : 80;
+      const debounceDelay = isDesktop ? 150 : 100;
+
       if (Math.abs(delta) > tickThreshold) {
         if (delta > 0) {
           // scrolling down
-          if (y > 160) { // wait until user is a bit down the page
-            downScrollRef.current = Math.min(4, downScrollRef.current + 1);
+          if (y > startYThreshold) {
+            downScrollRef.current = Math.min(requiredTicks, downScrollRef.current + 1);
             downDistanceRef.current += delta;
 
-            if (downScrollRef.current >= 4 && downDistanceRef.current > 120) {
+            if (downScrollRef.current >= requiredTicks && downDistanceRef.current > requiredDistance) {
               if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current);
               hideTimeoutRef.current = window.setTimeout(() => {
                 setHidden(true);
-              }, 150); // slight delay so it feels less snappy
+              }, debounceDelay);
             }
           }
         } else {
@@ -127,7 +134,7 @@ export default function Navbar({
   if (!isMounted) {
     return (
       <motion.nav
-        className={`fixed top-0 left-0 w-full z-50 ${hidden ? 'md:-translate-y-full md:opacity-0' : 'translate-y-0 opacity-100'} transition-all duration-500` }
+        className={`fixed top-0 left-0 w-full z-50 ${hidden ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'} transition-all duration-500` }
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
@@ -158,12 +165,12 @@ export default function Navbar({
 
   return (
     <motion.nav
-      className={`fixed top-0 left-0 w-full z-50 ${hidden ? 'md:-translate-y-full md:opacity-0' : 'translate-y-0 opacity-100'} transition-all duration-500` }
+      className={`fixed top-0 left-0 w-full z-50 ${hidden ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'} transition-all duration-500` }
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
     >
-      <div className={`w-full border-b border-white/10 bg-black/40 backdrop-blur-xl ${scrolled ? 'md:w-[84%] lg:w-[80%] md:mx-auto md:mt-8 md:rounded-2xl md:border md:bg-black/50 md:backdrop-blur-xl md:shadow-xl' : ''}`}>
+      <div className={`w-full border-b border-white/10 bg-black/40 backdrop-blur-xl ${scrolled ? '' : 'md:w-[84%] lg:w-[80%] md:mx-auto md:mt-8 md:rounded-2xl md:border md:bg-black/50 md:backdrop-blur-xl md:shadow-xl'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 w-full flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <FaEthereum className="text-indigo-400 text-2xl" />
@@ -180,7 +187,7 @@ export default function Navbar({
         </div>
 
         <div className="flex items-center gap-4 w-full sm:w-auto">
-          {(account || lastAccount) ? (
+          {/* {(account || lastAccount) ? (
             <div className="hidden md:flex items-center gap-3 bg-white/5 border border-white/10 rounded-full px-3 py-1.5">
               <span className="text-sm text-gray-200">{balance !== null ? `${balance} ETH` : <span className="inline-block w-16 h-4 bg-gray-700 rounded animate-pulse" />}</span>
               <button className="flex items-center gap-1 text-gray-200 hover:text-white" onClick={copyToClipboard}>
@@ -194,7 +201,7 @@ export default function Navbar({
             </div>
           ) : (
             <span className="text-gray-400 text-sm">Not Connected</span>
-          )}
+          )} */}
 
           <button
             aria-label="Toggle Theme"

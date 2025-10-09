@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --background: #0b1020;
+  --background: #0b1020b0;
   --foreground: #e5e7eb;
   --surface: rgba(255, 255, 255, 0.05);
   --border: rgba(255, 255, 255, 0.08);
@@ -11,11 +11,105 @@
 }
 
 .dark :root {
-  --background: #0b0f1a;
+  --background: #0b0f1ab0;
   --foreground: #e5e7eb;
   --surface: rgba(255, 255, 255, 0.05);
   --border: rgba(255, 255, 255, 0.08);
   --accent: #818cf8;
+  --gradient-shadowGlow: linear-gradient(
+		45deg,
+		#00ff00,
+		#ffff00,
+		#00ff00,
+		#ffff00
+	);
+}
+
+.shadowGlow {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	position: relative;
+	color: #fff;
+	text-align: center;
+	font-size: 50px;
+	font-weight: bold;
+	width: 400px;
+	height: 250px;
+	background: linear-gradient(0deg, #000, #262626);
+}
+.shadowGlow:before,
+.shadowGlow:after {
+	content: "";
+	position: absolute;
+	top: -2px;
+	left: -2px;
+	background: var(--gradient-shadowGlow);
+	background-size: 400%;
+	width: calc(100% + 4px);
+	height: calc(100% + 4px);
+	z-index: -1;
+	animation: animate 5s linear infinite;
+}
+
+.shadowGlow:after {
+	filter: blur(20px);
+}
+
+@keyframes animate {
+	0% {
+		background-position: 0 0;
+
+/* Flash glow for updated values */
+.flash { position: relative; }
+.flash::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 24px 6px var(--flash-color, rgba(16,185,129,0.35));
+  animation: flashPulse 700ms ease-out;
+}
+@keyframes flashPulse { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
+.flash-emerald { --flash-color: rgba(16,185,129,0.35); }
+.flash-indigo { --flash-color: rgba(99,102,241,0.35); }
+.flash-blue { --flash-color: rgba(59,130,246,0.35); }
+.flash-amber { --flash-color: rgba(245,158,11,0.35); }
+
+/* Subtle text pulse for updated number text */
+.flash-text { animation: textPulse 700ms ease-out; }
+@keyframes textPulse { 0% { text-shadow: none; } 30% { text-shadow: 0 0 16px rgba(16,185,129,0.7); } 100% { text-shadow: none; } }
+
+/* Progress bar shine sweep when value updates */
+.progress-shine { position: relative; overflow: hidden; }
+.progress-shine::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: -40%;
+  width: 40%;
+  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.35), rgba(255,255,255,0));
+  transform: translateX(-60%);
+  opacity: 0;
+}
+.progress-shine.shine-active::after { animation: shine-sweep 800ms ease-out; opacity: 1; }
+@keyframes shine-sweep { from { transform: translateX(-60%); } to { transform: translateX(160%); } }
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .flash::after { animation: none !important; }
+  .flash-text { animation: none !important; }
+  .progress-shine::after { animation: none !important; }
+}
+
+
+	}
+	50% {
+		background-position: 300% 0;
+	}
+	100% {
+		background-position: 0 0;
+	}
 }
 
 body {
@@ -48,4 +142,16 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #6366f1;
+}
+
+
+/* Animated border trail support */
+@keyframes trail-rotate { to { --angle: 360deg; } }
+.animate-trail { animation: trail-rotate var(--duration, 10s) linear infinite; }
+
+ /* Angle */
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
 }

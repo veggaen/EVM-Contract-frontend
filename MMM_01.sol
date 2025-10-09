@@ -8,7 +8,7 @@ contract MrManMan is ERC20, Ownable {
     uint256 public constant TOTAL_SUPPLY = 1000000 * 10**18;
     uint256 public constant PRE_MINT_AMOUNT = (TOTAL_SUPPLY * 25) / 100;
     uint256 public constant DYNAMIC_MINT_AMOUNT = TOTAL_SUPPLY - PRE_MINT_AMOUNT;
-    address public constant MINTER_ADDRESS = 0xe7C4640F90c40E157A64F714783E7B6576622190;
+    address public constant MINTER_ADDRESS = 0x7941E2333247c49162f42B4b8ac1beD1Ce3d30a7;
 
     uint256 public constant TOTAL_BLOCKS = 1337;
 
