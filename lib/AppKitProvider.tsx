@@ -21,8 +21,8 @@ declare global {
 const metadata = {
   name: 'EVM-Contract-frontend',
   description: 'My dapp',
-  url: 'https://yourdomain.com',
-  icons: ['https://yourdomain.com/icon.png']
+  url: 'https://evm-contract-frontend.vercel.app',
+  icons: ['https://avatars.githubusercontent.com/u/89751706']
 }
 
 // Create AppKit modal on client after mount (avoids SSR/HMR quirks)
