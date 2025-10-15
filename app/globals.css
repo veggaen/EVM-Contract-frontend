@@ -3,19 +3,33 @@
 @tailwind utilities;
 
 :root {
+  /* Default light theme */
+  --background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+  --foreground: #0f172a;
+  --surface: rgba(255, 255, 255, 0.95);
+  --border: rgba(15, 23, 42, 0.15);
+  --accent: #6366f1;
+  --primary: #4f46e5;
+  --secondary: #059669;
+  --muted: #475569;
+  --card-bg: rgba(255, 255, 255, 0.95);
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(15, 23, 42, 0.1);
+}
+
+.dark {
+  /* Dark theme */
   --background: #0b1020b0;
   --foreground: #e5e7eb;
   --surface: rgba(255, 255, 255, 0.05);
   --border: rgba(255, 255, 255, 0.08);
-  --accent: #6366f1;
-}
-
-.dark :root {
-  --background: #0b0f1ab0;
-  --foreground: #e5e7eb;
-  --surface: rgba(255, 255, 255, 0.05);
-  --border: rgba(255, 255, 255, 0.08);
   --accent: #818cf8;
+  --primary: #6366f1;
+  --secondary: #10b981;
+  --muted: #94a3b8;
+  --card-bg: rgba(0, 0, 0, 0.2);
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.1);
   --gradient-shadowGlow: linear-gradient(
 		45deg,
 		#00ff00,
@@ -23,6 +37,21 @@
 		#00ff00,
 		#ffff00
 	);
+}
+
+.custom {
+  /* Custom theme - will be overridden by JavaScript */
+  --background: var(--custom-background, #0b1020b0);
+  --foreground: var(--custom-foreground, #e5e7eb);
+  --surface: var(--custom-surface, rgba(255, 255, 255, 0.05));
+  --border: var(--custom-border, rgba(255, 255, 255, 0.08));
+  --accent: var(--custom-accent, #6366f1);
+  --primary: var(--custom-primary, #4f46e5);
+  --secondary: var(--custom-secondary, #10b981);
+  --muted: var(--custom-muted, #94a3b8);
+  --card-bg: var(--custom-card-bg, rgba(0, 0, 0, 0.4));
+  --glass-bg: var(--custom-glass-bg, rgba(255, 255, 255, 0.05));
+  --glass-border: var(--custom-glass-border, rgba(255, 255, 255, 0.1));
 }
 
 .shadowGlow {
@@ -114,17 +143,196 @@
 
 body {
   color: var(--foreground);
-  background: radial-gradient(1200px 800px at 10% -10%, rgba(79,70,229,0.15), transparent 60%),
-              radial-gradient(1000px 700px at 110% 10%, rgba(16,185,129,0.12), transparent 60%),
+  /* Fallback for older browsers */
+  background: var(--background);
+  /* Modern browsers with color-mix support */
+  background: radial-gradient(1200px 800px at 10% -10%, color-mix(in srgb, var(--primary) 15%, transparent), transparent 60%),
+              radial-gradient(1000px 700px at 110% 10%, color-mix(in srgb, var(--secondary) 12%, transparent), transparent 60%),
               var(--background);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 /* Glass utility */
 .glass {
   @apply backdrop-blur-xl rounded-2xl ring-1 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)];
-  background: var(--surface);
-  border-color: var(--border);
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+}
+
+/* Theme-aware utilities */
+.bg-primary { background-color: var(--primary); }
+.bg-secondary { background-color: var(--secondary); }
+.bg-accent { background-color: var(--accent); }
+.bg-surface { background-color: var(--surface); }
+.bg-card { background-color: var(--card-bg); }
+
+.text-primary { color: var(--primary); }
+.text-secondary { color: var(--secondary); }
+.text-accent { color: var(--accent); }
+.text-muted { color: var(--muted); }
+
+.border-primary { border-color: var(--primary); }
+.border-secondary { border-color: var(--secondary); }
+.border-accent { border-color: var(--accent); }
+.border-surface { border-color: var(--border); }
+
+.ring-primary { --tw-ring-color: var(--primary); }
+.ring-secondary { --tw-ring-color: var(--secondary); }
+.ring-accent { --tw-ring-color: var(--accent); }
+
+/* Smooth transitions for theme changes */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+/* Beautiful glass effects for both themes */
+.glass {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.dark .glass {
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Enhanced text readability on transparent glass */
+.glass * {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.light .glass * {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+.bg-black\/40 {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+.bg-black\/50 {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+.bg-white\/5 {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* Force theme colors on common elements */
+.bg-gradient-to-br {
+  background: var(--glass-bg) !important;
+}
+
+.border-white\/10 {
+  border-color: var(--glass-border) !important;
+}
+
+/* Enhanced card backgrounds with glass effects */
+.rounded-xl.border {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.dark .rounded-xl.border {
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Enhanced navbar glass effects */
+.backdrop-blur-xl {
+  backdrop-filter: blur(20px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
+}
+
+/* Beautiful input fields */
+input, select, textarea {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Progress bars and other elements */
+.bg-gradient-to-r {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.light .text-white {
+  color: var(--foreground) !important;
+}
+
+.light .text-gray-200 {
+  color: var(--muted) !important;
+}
+
+/* Chart text colors - Recharts styling */
+.recharts-text {
+  fill: var(--foreground) !important;
+}
+
+.recharts-legend-item-text {
+  color: var(--foreground) !important;
+}
+
+.recharts-tooltip-wrapper {
+  color: var(--foreground) !important;
+}
+
+.recharts-tooltip-item {
+  color: var(--foreground) !important;
+}
+
+.recharts-tooltip-label {
+  color: var(--foreground) !important;
+}
+
+/* Light mode chart overrides */
+.light .recharts-text {
+  fill: var(--foreground) !important;
+}
+
+.light .recharts-legend-item-text {
+  color: var(--foreground) !important;
+}
+
+/* Dark mode chart overrides */
+.dark .recharts-text {
+  fill: var(--foreground) !important;
+}
+
+.dark .recharts-legend-item-text {
+  color: var(--foreground) !important;
+}
+
+.light .text-gray-300 {
+  color: var(--foreground) !important;
+}
+
+.light .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.light .bg-white\/5 {
+  background: rgba(0, 0, 0, 0.05) !important;
 }
 
 

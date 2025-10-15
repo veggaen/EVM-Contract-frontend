@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { FaEthereum } from "react-icons/fa";
+import { FaEthereum, FaChevronDown } from "react-icons/fa";
 import { FiLogOut } from "react-icons/fi";
 import { ethers } from "ethers";
 import { sepolia, holesky, mainnet } from "wagmi/chains";
 import { motion } from "framer-motion";
-import { useTheme } from "next-themes";
+import ThemeSelector from "./ThemeSelector";
 
 interface NavbarProps {
   account: `0x${string}` | undefined;
@@ -28,6 +28,8 @@ export default function Navbar({
   //const [copied, setCopied] = useState<boolean>(false);
   const [isMounted, setIsMounted] = useState(false); // Track client-side mounting
   const [lastAccount, setLastAccount] = useState<string | undefined>(undefined);
+  const [isNetworkDropdownOpen, setIsNetworkDropdownOpen] = useState(false);
+  const networkDropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchBalance = useCallback(async () => {
     if (account && provider) {
@@ -53,6 +55,20 @@ export default function Navbar({
     }
   }, [account, provider, fetchBalance, balance, lastAccount]);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (networkDropdownRef.current && !networkDropdownRef.current.contains(event.target as Node)) {
+        setIsNetworkDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   /* const copyToClipboard = async () => {
     if (account) {
       await navigator.clipboard.writeText(account);
@@ -61,17 +77,23 @@ export default function Navbar({
     }
   }; */
 
-  const handleNetworkChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newNetworkId = Number(event.target.value);
-    setActiveNetwork(newNetworkId);
+
+
+  const handleCustomNetworkSelect = (networkId: number) => {
+    setActiveNetwork(networkId);
+    setIsNetworkDropdownOpen(false);
   };
 
-  const networkName =
-    activeNetwork === sepolia.id ? "Sepolia" : activeNetwork === holesky.id ? "Holesky" : "Mainnet";
+  const networkOptions = [
+    { id: sepolia.id, name: "Sepolia", color: "#3b82f6" },
+    { id: holesky.id, name: "Holesky", color: "#8b5cf6" },
+    { id: mainnet.id, name: "Mainnet", color: "#10b981" }
+  ];
 
-  // Theme toggle
-  const { theme, setTheme } = useTheme();
-  /* const isDark = theme === "dark"; */
+  const currentNetwork = networkOptions.find(n => n.id === activeNetwork) || networkOptions[0];
+  const networkName = currentNetwork.name;
+
+  // Theme functionality is now handled by ThemeSelector component
 
   // Hide-on-scroll (desktop only) with gentler threshold + debounce
   const lastY = useRef(0);
@@ -139,20 +161,104 @@ export default function Navbar({
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
-        <div className={`w-full border-b border-white/10 bg-black/40 backdrop-blur-xl ${scrolled ? 'md:w-[84%] lg:w-[80%] md:mx-auto md:mt-8 md:rounded-2xl md:border md:bg-black/50 md:backdrop-blur-xl md:shadow-xl' : ''}`}>
+        <div
+          className={`w-full border-b backdrop-blur-xl ${scrolled ? 'md:w-[84%] lg:w-[80%] md:mx-auto md:mt-8 md:rounded-2xl md:border md:backdrop-blur-xl md:shadow-xl' : ''}`}
+          style={{
+            backgroundColor: 'var(--glass-bg)',
+            borderColor: 'var(--glass-border)'
+          }}
+        >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 w-full flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <FaEthereum className="text-indigo-400 text-2xl" />
-              <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent font-semibold text-lg">MPM ({networkName})</span>
-              <select
-                value={activeNetwork}
-                onChange={handleNetworkChange}
-                className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 hover:border-indigo-400 transition"
+              <FaEthereum className="text-2xl" style={{ color: 'var(--primary)' }} />
+              <span
+                className="bg-clip-text text-transparent font-semibold text-lg"
+                style={{
+                  backgroundImage: `linear-gradient(to right, var(--primary), var(--accent), var(--secondary))`,
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text'
+                }}
               >
-                <option value={sepolia.id}>Sepolia</option>
-                <option value={holesky.id}>Holesky</option>
-                <option value={mainnet.id}>Mainnet</option>
-              </select>
+                MPM ({networkName})
+              </span>
+              {/* Custom Network Dropdown */}
+              <div className="relative" ref={networkDropdownRef}>
+                <button
+                  onClick={() => setIsNetworkDropdownOpen(!isNetworkDropdownOpen)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all focus:outline-none focus:ring-2"
+                  style={{
+                    backgroundColor: 'var(--glass-bg)',
+                    border: `1px solid var(--glass-border)`,
+                    color: 'var(--foreground)',
+                    backdropFilter: 'blur(10px)',
+                    WebkitBackdropFilter: 'blur(10px)',
+                    '--tw-ring-color': 'var(--primary)'
+                  } as React.CSSProperties & { '--tw-ring-color': string }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--glass-border)'}
+                >
+                  <div
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: currentNetwork.color }}
+                  />
+                  <span>{currentNetwork.name}</span>
+                  <FaChevronDown
+                    className={`text-xs transition-transform ${isNetworkDropdownOpen ? 'rotate-180' : ''}`}
+                    style={{ color: 'var(--muted)' }}
+                  />
+                </button>
+
+                {/* Dropdown Menu */}
+                {isNetworkDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute top-full left-0 mt-2 w-full min-w-[120px] rounded-lg shadow-2xl z-50"
+                    style={{
+                      backgroundColor: 'var(--glass-bg)',
+                      border: `1px solid var(--glass-border)`,
+                      backdropFilter: 'blur(20px) saturate(150%)',
+                      WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+                      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1)'
+                    }}
+                  >
+                    {networkOptions.map((network) => (
+                      <button
+                        key={network.id}
+                        onClick={() => handleCustomNetworkSelect(network.id)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                          network.id === activeNetwork ? 'opacity-100' : 'opacity-70 hover:opacity-100'
+                        }`}
+                        style={{
+                          color: 'var(--foreground)',
+                          backgroundColor: network.id === activeNetwork ? 'var(--primary-alpha)' : 'transparent'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (network.id !== activeNetwork) {
+                            e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (network.id !== activeNetwork) {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }
+                        }}
+                      >
+                        <div
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: network.color }}
+                        />
+                        <span>{network.name}</span>
+                        {network.id === activeNetwork && (
+                          <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
+                        )}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-gray-300/80 text-sm">Loading...</span>
@@ -170,20 +276,104 @@ export default function Navbar({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
     >
-      <div className={`w-full border-b border-white/10 bg-black/40 backdrop-blur-xl ${scrolled ? '' : 'md:w-[84%] lg:w-[80%] md:mx-auto md:mt-8 md:rounded-2xl md:border md:bg-black/50 md:backdrop-blur-xl md:shadow-xl'}`}>
+      <div
+        className={`w-full border-b backdrop-blur-xl ${scrolled ? '' : 'md:w-[84%] lg:w-[80%] md:mx-auto md:mt-8 md:rounded-2xl md:border md:backdrop-blur-xl md:shadow-xl'}`}
+        style={{
+          backgroundColor: 'var(--glass-bg)',
+          borderColor: 'var(--glass-border)'
+        }}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 w-full flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <FaEthereum className="text-indigo-400 text-2xl" />
-          <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent font-semibold text-lg">MPM ({networkName})</span>
-          <select
-            value={activeNetwork}
-            onChange={handleNetworkChange}
-            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 hover:border-indigo-400 transition"
+          <FaEthereum className="text-2xl" style={{ color: 'var(--primary)' }} />
+          <span
+            className="bg-clip-text text-transparent font-semibold text-lg"
+            style={{
+              backgroundImage: `linear-gradient(to right, var(--primary), var(--accent), var(--secondary))`,
+              WebkitBackgroundClip: 'text',
+              backgroundClip: 'text'
+            }}
           >
-            <option value={sepolia.id}>Sepolia</option>
-            <option value={holesky.id}>Holesky</option>
-            <option value={mainnet.id}>Mainnet</option>
-          </select>
+            MPM ({networkName})
+          </span>
+          {/* Custom Network Dropdown */}
+          <div className="relative" ref={networkDropdownRef}>
+            <button
+              onClick={() => setIsNetworkDropdownOpen(!isNetworkDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all focus:outline-none focus:ring-2"
+              style={{
+                backgroundColor: 'var(--glass-bg)',
+                border: `1px solid var(--glass-border)`,
+                color: 'var(--foreground)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                '--tw-ring-color': 'var(--primary)'
+              } as React.CSSProperties & { '--tw-ring-color': string }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--glass-border)'}
+            >
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: currentNetwork.color }}
+              />
+              <span>{currentNetwork.name}</span>
+              <FaChevronDown
+                className={`text-xs transition-transform ${isNetworkDropdownOpen ? 'rotate-180' : ''}`}
+                style={{ color: 'var(--muted)' }}
+              />
+            </button>
+
+            {/* Dropdown Menu */}
+            {isNetworkDropdownOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="absolute top-full left-0 mt-2 w-full min-w-[120px] rounded-lg shadow-2xl z-50"
+                style={{
+                  backgroundColor: 'var(--glass-bg)',
+                  border: `1px solid var(--glass-border)`,
+                  backdropFilter: 'blur(20px) saturate(150%)',
+                  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1)'
+                }}
+              >
+                {networkOptions.map((network) => (
+                  <button
+                    key={network.id}
+                    onClick={() => handleCustomNetworkSelect(network.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                      network.id === activeNetwork ? 'opacity-100' : 'opacity-70 hover:opacity-100'
+                    }`}
+                    style={{
+                      color: 'var(--foreground)',
+                      backgroundColor: network.id === activeNetwork ? 'var(--primary-alpha)' : 'transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (network.id !== activeNetwork) {
+                        e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (network.id !== activeNetwork) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }
+                    }}
+                  >
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: network.color }}
+                    />
+                    <span>{network.name}</span>
+                    {network.id === activeNetwork && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
+                    )}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-4 w-full sm:w-auto">
@@ -203,12 +393,7 @@ export default function Navbar({
             <span className="text-gray-400 text-sm">Not Connected</span>
           )} */}
 
-          <button
-            aria-label="Toggle Theme"
-            className="hidden sm:inline-flex items-center justify-center h-9 w-9 rounded-full bg-white/5 border border-white/10 text-sm hover:scale-[1.05] active:scale-[0.97] transition"
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
-          >{theme === 'dark' ? '🌙' : '☀️'}</button>
+          <ThemeSelector />
           <w3m-button size="md" label="Connect" />
           {account && (
             <button

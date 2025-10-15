@@ -291,7 +291,7 @@ const PieChartCard = ({
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+      <h3 className="text-xl font-semibold mb-4 flex items-center" style={{ color: 'var(--primary)' }}>
         {icon}
         <span className="ml-2">{title} {currentPhase !== undefined ? `Phase ${currentPhase}` : ""}</span>
       </h3>
@@ -420,7 +420,7 @@ const HistoricalPhaseCard = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h2 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center justify-between">
+      <h2 className="text-2xl font-bold mb-4 flex items-center justify-between" style={{ color: 'var(--primary)' }}>
         <span>Phase {phase} (Completed)</span>
         <button onClick={() => setIsExpanded(!isExpanded)} className="text-gray-300 hover:text-white">
           {isExpanded ? <FaChevronUp /> : <FaChevronDown />}
@@ -433,7 +433,8 @@ const HistoricalPhaseCard = ({
           </p>
           <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
             <motion.div
-              className="bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 h-full rounded-full"
+              className="h-full rounded-full"
+              style={{ background: `linear-gradient(to right, var(--primary), var(--accent))` }}
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}
               transition={{ duration: 1 }}
@@ -562,8 +563,7 @@ export default function Dashboard() {
   });
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
   const [hasInitialUserFetch, setHasInitialUserFetch] = useState(false);
-  const [publicFailureCount, setPublicFailureCount] = useState(0);
-  const [userFailureCount, setUserFailureCount] = useState(0);
+
   const [hasPublicLight, setHasPublicLight] = useState(false);
   const [hasPublicDetails, setHasPublicDetails] = useState(false);
   const [showMoreTop, setShowMoreTop] = useState(false);
@@ -920,16 +920,12 @@ export default function Dashboard() {
         codeSize,
       }));
       setErrorMessage(null);
-      setPublicFailureCount(0);
+
       setHasPublicDetails(true);
 
     } catch (error) {
       console.error("Failed to fetch public contract data:", error) ;
-      setPublicFailureCount((c) => {
-        const next = c + 1;
-        if (next >= 2) setErrorMessage("Error fetching public blockchain data. Please try refreshing.");
-        return next;
-      });
+      setErrorMessage("Error fetching public blockchain data. Please try refreshing.");
     } finally {
       isFetchingPublicRef.current = false;
     }
@@ -1129,15 +1125,11 @@ export default function Dashboard() {
       }));
       setPendingContributions(account, filteredPending);
       setHasInitialUserFetch(true);
-      setUserFailureCount(0);
+
       setErrorMessage(null);
     } catch (error) {
       console.error("Failed to fetch user contract data:", error);
-      setUserFailureCount((c) => {
-        const next = c + 1;
-        if (next >= 2) setErrorMessage("Error fetching user blockchain data. Please try refreshing.");
-        return next;
-      });
+      setErrorMessage("Error fetching user blockchain data. Please try refreshing.");
     } finally {
       isFetchingUserRef.current = false;
     }
@@ -1150,12 +1142,10 @@ export default function Dashboard() {
   const sendEth = useCallback(async () => {
     if (!isConnected || !signer || !account || !contract || contractData.isLaunchComplete) {
       setTxMessage(contractData.isLaunchComplete ? "Launch is complete, no more contributions accepted." : "Please connect your wallet!");
-      setTimeout(() => setTxMessage(null), 4000);
       return;
     }
     if (parseFloat(ethAmount) < parseFloat(MINIMUM_ETH)) {
       setTxMessage("Minimum contribution is 0.001 ETH.");
-      setTimeout(() => setTxMessage(null), 4000);
       return;
     }
     setIsSending(true);
@@ -1166,11 +1156,9 @@ export default function Dashboard() {
         chainId: activeNetwork,
       });
       setTxMessage("Waiting for wallet confirmation...");
-      setTimeout(() => setTxMessage(null), 4000);
     } catch (error) {
       console.error("Send ETH failed:", error);
       setTxMessage(`Transaction failed: ${(error as Error).message}`);
-      setTimeout(() => setTxMessage(null), 5000);
       setIsSending(false);
     }
   }, [isConnected, signer, account, ethAmount, activeNetwork, sendTransaction, contract, contractData.isLaunchComplete]);
@@ -1250,7 +1238,7 @@ export default function Dashboard() {
   // Clear user error when disconnected
   useEffect(() => {
     if (!isConnected) {
-      setUserFailureCount(0);
+
       if (errorMessage && errorMessage.toLowerCase().includes("user blockchain")) {
         setErrorMessage(null);
       }
@@ -1365,12 +1353,12 @@ useEffect(() => {
       setLastTxHash(txData);
       setIsSending(false);
       setErrorMessage(null);
+      setTxMessage(null); // Clear the "Waiting for wallet confirmation..." message
 
       setTimeout(fetchUserContractData, 5000);
     } else if (txError) {
       setIsSending(false);
       setTxMessage(`Transaction failed: ${txError.message || "Unknown error"}`);
-      setTimeout(() => setTxMessage(null), 5000);
     }
   }, [isSuccess, txError, txData, contract, provider, account, ethAmount, contractData, fetchUserContractData, lastTxHash]);
 
@@ -1448,7 +1436,14 @@ useEffect(() => {
           transition={{ duration: 0.7 }}
         >
           <FaEthereum className="text-indigo-400 text-5xl mx-auto animate-bounce" />
-          <h1 className="text-4xl md:text-5xl font-extrabold mt-4 bg-gradient-to-r from-indigo-400 via-purple-500 to-pink-500 bg-clip-text text-transparent">
+          <h1
+            className="text-4xl md:text-5xl font-extrabold mt-4 bg-clip-text text-transparent"
+            style={{
+              backgroundImage: `linear-gradient(to right, var(--primary), var(--accent), var(--secondary))`,
+              WebkitBackgroundClip: 'text',
+              backgroundClip: 'text'
+            }}
+          >
             MrManMan (MMM) Token
           </h1>
           <p className="mt-2 text-gray-300 text-lg">Participate in a decentralized ecosystem</p>
@@ -1463,7 +1458,22 @@ useEffect(() => {
               href={`${getExplorerBase(activeNetwork)}/address/${CONTRACT_ADDRESSES[activeNetwork]}`}
               target="_blank"
               rel="noreferrer"
-              className="px-3 py-1 rounded-md bg-gray-800 border border-gray-700 hover:border-indigo-500 text-sm text-indigo-300 hover:text-indigo-200 transition-colors"
+              className="px-3 py-1 rounded-md text-sm transition-colors"
+              style={{
+                backgroundColor: 'var(--glass-bg)',
+                border: `1px solid var(--glass-border)`,
+                color: 'var(--primary)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--primary)';
+                e.currentTarget.style.color = 'var(--accent)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--glass-border)';
+                e.currentTarget.style.color = 'var(--primary)';
+              }}
             >
               View on Etherscan
             </a>
@@ -1492,9 +1502,8 @@ useEffect(() => {
           </div>
         )}
 
-        <div className="max-w-6xl flex-col gap-10 space-y-10 items-start justify-center">
-          <div className="grid md:grid-cols-2 gap-8 items-start justify-center mt-8">
-            <div id="participate" className="glass p-6 ring-white/10 space-y-8 h-full">
+        <div className="grid md:grid-cols-2 gap-8 items-start justify-center mt-8">
+          <div id="participate" className="glass p-6 ring-white/10 space-y-8 h-full">
 
             <motion.div
               className="space-y-2"
@@ -1502,8 +1511,8 @@ useEffect(() => {
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <h2 className="text-2xl font-bold text-indigo-400 flex items-center">
-                <FaEthereum className="mr-2" /> Participate
+              <h2 className="text-2xl font-bold flex items-center" style={{ color: 'var(--primary)' }}>
+                <FaEthereum className="mr-2" style={{ color: 'var(--primary)' }} /> Participate
               </h2>
 
 	              {lastContribution && (
@@ -1533,7 +1542,10 @@ useEffect(() => {
 	                      <a
 	                        href={`${getExplorerBase(activeNetwork)}/tx/${lastContribution.txHash}`}
 	                        target="_blank"
-	                        className="mt-3 inline-block text-xs text-emerald-300 hover:text-emerald-200 underline"
+	                        className="mt-3 inline-block text-xs underline transition-colors"
+                        style={{ color: 'var(--primary)' }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = 'var(--primary)'}
 	                      >
 	                        View transaction
 	                      </a>
@@ -1552,7 +1564,13 @@ useEffect(() => {
                 type="number"
                 value={ethAmount}
                 onChange={(e) => setEthAmount(e.target.value)}
-                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 transition-all"
+                className="w-full p-3 rounded-lg text-white transition-all"
+                style={{
+                  backgroundColor: 'var(--glass-bg)',
+                  border: `1px solid var(--glass-border)`,
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)'
+                }}
                 step="0.01"
                 min="0.001"
                 placeholder="Enter ETH amount (min 0.001)"
@@ -1564,7 +1582,14 @@ useEffect(() => {
                     type="button"
                     key={v}
                     onClick={() => setEthAmount(v.toString())}
-                    className="px-3 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition"
+                    className="px-3 py-1.5 text-xs rounded-lg transition"
+                    style={{
+                      backgroundColor: 'var(--glass-bg)',
+                      border: `1px solid var(--glass-border)`,
+                      color: 'var(--foreground)',
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)'
+                    }}
                     disabled={!isConnected || isSending || contractData.isLaunchComplete}
                   >
                     {v} ETH
@@ -1591,34 +1616,42 @@ useEffect(() => {
 	                </div>
 	              </div>
 
-              {txMessage && (
-                <p className="text-sm mt-2 text-indigo-300">{txMessage}</p>
+              {(txMessage || errorMessage) && (
+                <div className="mt-3 p-3 rounded-lg flex items-center justify-between" style={{
+                  backgroundColor: txMessage?.includes("failed") || errorMessage?.includes("Error") ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+                  border: `1px solid ${txMessage?.includes("failed") || errorMessage?.includes("Error") ? 'rgba(239, 68, 68, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+                }}>
+                  <p className="text-sm" style={{
+                    color: txMessage?.includes("failed") || errorMessage?.includes("Error") ? '#ef4444' : '#3b82f6'
+                  }}>
+                    {txMessage || errorMessage}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setTxMessage(null);
+                      setErrorMessage(null);
+                    }}
+                    className="ml-3 text-xs px-2 py-1 rounded transition-colors"
+                    style={{
+                      backgroundColor: 'var(--glass-bg)',
+                      border: `1px solid var(--glass-border)`,
+                      color: 'var(--foreground)'
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
               )}
-              {(() => {
-                const showPublicError = publicFailureCount >= 2 && !hasPublicLight;
-                const showUserError = isConnected && userFailureCount >= 2 && !hasInitialUserFetch && !contract;
-                if (errorMessage && (showPublicError || showUserError)) {
-                  return (
-                    <p className={`text-sm mt-2 ${errorMessage.includes("accepted") ? "text-green-400" : "text-red-400"}`}>
-                      {errorMessage}
-                    </p>
-                  );
-                }
-                if (!errorMessage && (showPublicError || showUserError)) {
-                  return (
-                    <p className="text-sm mt-2 text-red-400">
-                      {showUserError
-                        ? "Error fetching user blockchain data. Please try refreshing."
-                        : "Error fetching public blockchain data. Please try refreshing."}
-                    </p>
-                  );
-                }
-                return null;
-              })()}
               <button
                 onClick={sendEth}
                 disabled={!isConnected || isSending || contractData.isLaunchComplete}
-                className="mt-4 w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:bg-gray-600 transition-all font-semibold"
+                className="mt-4 w-full py-3 rounded-lg disabled:bg-gray-600 transition-all font-semibold"
+                style={{
+                  background: !isConnected || isSending || contractData.isLaunchComplete
+                    ? '#6b7280'
+                    : `linear-gradient(to right, var(--primary), var(--accent))`,
+                  color: '#ffffff'
+                }}
               >
                 {isSending ? "Processing..." : "Send ETH"}
               </button>
@@ -1648,8 +1681,8 @@ useEffect(() => {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.2 }}
               >
-                <h2 className="text-2xl font-bold text-yellow-400 mb-4 flex items-center">
-                  <FaCoins className="mr-2" /> Mint Tokens
+                <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--accent)' }}>
+                  <FaCoins className="mr-2" style={{ color: 'var(--accent)' }} /> Mint Tokens
                 </h2>
                 {contractData.mintablePhases.length === 0 && contractData.mintedPhases.length === 0 ? (
                   <p className="text-gray-400">No phases ready for minting or previously minted.</p>
@@ -1669,7 +1702,13 @@ useEffect(() => {
                               key={phase}
                               onClick={() => mintTokens(phase)}
                               disabled={isLoading && (isMinting.get(phase) || isMinting.get(-1))}
-                              className="w-full py-2 bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-600 transition-all font-medium"
+                              className="w-full py-2 rounded-lg disabled:bg-gray-600 transition-all font-medium"
+                              style={{
+                                backgroundColor: isLoading && (isMinting.get(phase) || isMinting.get(-1))
+                                  ? '#6b7280'
+                                  : 'var(--accent)',
+                                color: '#ffffff'
+                              }}
                             >
                               {isPhaseMinting
                                 ? "Minting..."
@@ -1711,7 +1750,7 @@ useEffect(() => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <h2 className="text-2xl font-bold text-indigo-400 mb-4">
+              <h2 className="text-2xl font-bold mb-4" style={{ color: 'var(--primary)' }}>
                 {!hasPublicLight ? "Phase Progress" : (contractData.isLaunchComplete ? "Launch Complete" : `Phase ${contractData.currentPhase} Progress`)}
               </h2>
               {contractData.isLaunchComplete ? (
@@ -1741,7 +1780,8 @@ useEffect(() => {
                         </p>
                         <div className={`bg-gray-700 h-3 rounded-full overflow-hidden progress-shine ${totalProgFlash ? 'shine-active' : ''}`}>
                           <motion.div
-                            className="bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 h-full rounded-full"
+                            className="h-full rounded-full"
+                            style={{ background: `linear-gradient(to right, var(--primary), var(--accent), var(--secondary))` }}
                             initial={{ width: 0 }}
                             animate={{ width: `${launchPhaseProgress}%` }}
                             transition={{ duration: 1 }}
@@ -1752,7 +1792,8 @@ useEffect(() => {
                         <p className="text-sm text-gray-300">Phase Progress: {Math.round(launchPhaseEndProgress)}%</p>
                         <div className={`bg-gray-700 h-3 rounded-full overflow-hidden progress-shine ${phaseProgFlash ? 'shine-active' : ''}`}>
                           <motion.div
-                            className="bg-green-500 h-full rounded-full"
+                            className="h-full rounded-full"
+                            style={{ backgroundColor: 'var(--accent)' }}
                             initial={{ width: 0 }}
                             animate={{ width: `${launchPhaseEndProgress}%` }}
                             transition={{ duration: 1 }}
@@ -1831,8 +1872,10 @@ useEffect(() => {
               )}
             </div>
           </div>
-          </div>
+        </div>
 
+        {/* Project Stats - Full Width Section */}
+        <div className="mt-12">
           <div className="glass p-6 ring-white/10 space-y-8">
             <motion.div
               className="pt-6 mt-6 border-t border-white/10"
@@ -1840,48 +1883,48 @@ useEffect(() => {
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <h2 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center">
-                <FaChartLine className="mr-2" /> Project Stats
+              <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--primary)' }}>
+                <FaChartLine className="mr-2" style={{ color: 'var(--primary)' }} /> Project Stats
               </h2>
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs text-gray-300">
-                    <FaCoins className="text-indigo-300" />
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaCoins style={{ color: 'var(--primary)' }} />
                     <span>Total Minted</span>
                   </div>
-                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.totalMinted} /> MMM</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalMinted} /> MMM</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs text-gray-300">
-                    <FaEthereum className="text-emerald-300" />
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaEthereum style={{ color: 'var(--accent)' }} />
                     <span>Total Contributions</span>
                   </div>
-                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.totalContributions} /> ETH</>) : (<span className="inline-block h-4 w-28 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalContributions} /> ETH</>) : (<span className="inline-block h-4 w-28 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs text-gray-300">
-                    <FaUsers className="text-blue-300" />
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaUsers style={{ color: 'var(--secondary)' }} />
                     <span>Total Participants</span>
                   </div>
-                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<span className={totalParticipantsFlash ? 'flash-text' : ''}>{contractData.totalParticipants}</span>) : (<span className="inline-block h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<span className={totalParticipantsFlash ? 'flash-text' : ''}>{contractData.totalParticipants}</span>) : (<span className="inline-block h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs text-gray-300">
-                    <FaCoins className="text-indigo-300" />
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaCoins style={{ color: 'var(--primary)' }} />
                     <span>Phase Tokens</span>
                   </div>
-                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</>) : (<span className="inline-block h-4 w-20 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</>) : (<span className="inline-block h-4 w-20 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs text-gray-300">
-                    <FaEthereum className="text-emerald-300" />
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaEthereum style={{ color: 'var(--accent)' }} />
                     <span>Phase Contributions</span>
                   </div>
-                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs text-gray-300">
-                    <FaUsers className="text-blue-300" />
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaUsers style={{ color: 'var(--secondary)' }} />
                     <span>Phase Participants</span>
                   </div>
                   <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<span className={participantsFlash ? 'flash-text' : ''}>{contractData.participantsCount}</span>) : (<span className="inline-block h-4 w-10 bg-gray-700/60 rounded animate-pulse" />)}</div>
@@ -1895,13 +1938,13 @@ useEffect(() => {
                   <div>
                     <PieChartCard
                       title="Global Contributions"
-                      icon={<FaUsers className="text-blue-400" />}
+                      icon={<FaUsers style={{ color: 'var(--primary)' }} />}
                       data={contractData.totalParticipantsData}
                       totalTokens={contractData.totalMinted}
                     />
                   </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <h3 className="text-sm font-semibold text-gray-200 mb-3">Top Contributors</h3>
+                  <div className="glass p-4">
+                    <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--secondary)' }}>Top Contributors</h3>
                     {(() => {
                       const total = parseFloat(contractData.totalContributions) || 0;
                       const sliceCount = showMoreTop ? 20 : 5;
@@ -1932,7 +1975,10 @@ useEffect(() => {
                                 </div>
                                 {total > 0 && (
                                   <div className="mt-2 h-2 rounded-full bg-gray-700/60 overflow-hidden">
-                                    <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{ width: `${Math.min(100, (p.value / total) * 100).toFixed(1)}%` }} />
+                                    <div className="h-full" style={{
+                                      background: `linear-gradient(to right, var(--primary), var(--accent))`,
+                                      width: `${Math.min(100, (p.value / total) * 100).toFixed(1)}%`
+                                    }} />
                                   </div>
                                 )}
                               </li>
@@ -1941,7 +1987,12 @@ useEffect(() => {
                           <div className="mt-4 text-right">
                             <button
                               type="button"
-                              className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition"
+                              className="text-xs px-3 py-1.5 rounded-lg transition"
+                              style={{
+                                backgroundColor: 'var(--glass-bg)',
+                                border: `1px solid var(--glass-border)`,
+                                color: 'var(--foreground)'
+                              }}
                               onClick={() => setShowMoreTop(v => !v)}
                             >
                               {showMoreTop ? 'Show less' : 'Show more'}
@@ -1984,7 +2035,7 @@ useEffect(() => {
               </div>
               <PieChartCard
                 title="Supply Details"
-                icon={<FaCoins className="text-yellow-400" />}
+                icon={<FaCoins style={{ color: 'var(--accent)' }} />}
                 data={[
                   { name: "Realized", value: parseFloat(contractData.totalMinted), tokens: parseFloat(contractData.totalMinted) },
                   { name: "Unrealized", value: TOTAL_SUPPLY - parseFloat(contractData.totalMinted), tokens: TOTAL_SUPPLY - parseFloat(contractData.totalMinted) },
@@ -1997,61 +2048,69 @@ useEffect(() => {
           </div>
         </div>
 
+        <div className="flex flex-col gap-10 space-y-10 items-start justify-center">
+
         {isConnected && (
           <div className="mt-12">
-            <h2 className="text-3xl font-bold text-white mb-8">Your History</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-              <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3">
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <FaEthereum className="text-emerald-300" />
-                  <span>Total Contributions</span>
-                </div>
-                <div className="mt-1.5 font-mono text-white">{totalUserContributions.toFixed(4)} ETH</div>
-              </div>
-              {(() => {
-                const totalMintedUser = (contractData.historicalData || []).reduce((s, x) => s + (x.minted || 0), 0);
-                return (
-                  <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3">
-                    <div className="flex items-center gap-2 text-xs text-gray-300">
-                      <FaCoins className="text-indigo-300" />
-                      <span>Your Realized MMM</span>
-                    </div>
-                    <div className="mt-1.5 font-mono text-white">{abbreviateNumber(totalMintedUser)} MMM</div>
+            <div className="glass p-6 ring-white/10 space-y-6">
+              <h2 className="text-2xl font-bold flex items-center" style={{ color: 'var(--primary)' }}>
+                <FaUsers className="mr-3" style={{ color: 'var(--primary)' }} />
+                Your History
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaEthereum style={{ color: 'var(--accent)' }} />
+                    <span>Total Contributions</span>
                   </div>
-                );
-
-          <div className="glass p-6 ring-white/10 space-y-4 mt-8">
-            <h2 className="text-xl font-semibold text-white">Unique Contributors (All-time)</h2>
-            <div className="text-xs text-gray-300">Count: {uniqueContributors.length}</div>
-            {uniqueContributors.length > 0 ? (
-              <ul className="max-h-48 overflow-y-auto divide-y divide-white/5">
-                {uniqueContributors.slice(0, 120).map((addr) => (
-                  <li key={addr} className="py-1.5">
-                    <button
-                      type="button"
-                      className="font-mono text-gray-300 hover:text-white hover:underline"
-                      title="Click to copy address"
-                      onClick={async () => { try { await navigator.clipboard.writeText(addr); } catch {} }}
-                    >
-                      {addr.length === 42 ? `${addr.slice(0,6)}...${addr.slice(-4)}` : addr}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-xs text-gray-400">No contributors yet.</div>
-            )}
-          </div>
-
-              })()}
-              <div className="rounded-xl border border-white/10 bg-gradient-to-br from-amber-500/10 to-pink-500/10 p-3">
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <FaCoins className="text-amber-300" />
-                  <span>Estimated Reward</span>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{totalUserContributions.toFixed(4)} ETH</div>
                 </div>
-                <div className="mt-1.5 font-mono text-white"><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
+                {(() => {
+                  const totalMintedUser = (contractData.historicalData || []).reduce((s, x) => s + (x.minted || 0), 0);
+                  return (
+                    <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                      <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                        <FaCoins style={{ color: 'var(--secondary)' }} />
+                        <span>Your Realized MMM</span>
+                      </div>
+                      <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{abbreviateNumber(totalMintedUser)} MMM</div>
+                    </div>
+                  );
+                })()}
+                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+                    <FaCoins style={{ color: 'var(--primary)' }} />
+                    <span>Estimated Reward</span>
+                  </div>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
+                </div>
               </div>
-            </div>
+
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Unique Contributors (All-time)</h3>
+                <div className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Count: {uniqueContributors.length}</div>
+                {uniqueContributors.length > 0 ? (
+                  <ul className="max-h-48 overflow-y-auto divide-y divide-white/5 glass p-3 rounded-lg">
+                    {uniqueContributors.slice(0, 120).map((addr) => (
+                      <li key={addr} className="py-1.5">
+                        <button
+                          type="button"
+                          className="font-mono hover:underline transition-colors"
+                          style={{ color: 'var(--muted)' }}
+                          title="Click to copy address"
+                          onClick={async () => { try { await navigator.clipboard.writeText(addr); } catch {} }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--foreground)'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
+                        >
+                          {addr.length === 42 ? `${addr.slice(0,6)}...${addr.slice(-4)}` : addr}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-xs glass p-3 rounded-lg" style={{ color: 'var(--muted)' }}>No contributors yet.</div>
+                )}
+              </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               <PieChartCard
@@ -2063,12 +2122,17 @@ useEffect(() => {
               <MintedTokensChart data={contractData.historicalData} />
               <ContributionsChart data={contractData.historicalData} />
             </div>
+            </div>
           </div>
         )}
 
         {!contractData.isLaunchComplete && (
           <div className="mt-12">
-            <h2 className="text-3xl font-bold text-white mb-8">Historical Phases</h2>
+            <div className="glass p-6 ring-white/10 space-y-6">
+              <h2 className="text-2xl font-bold flex items-center" style={{ color: 'var(--primary)' }}>
+                <FaChartLine className="mr-3" style={{ color: 'var(--primary)' }} />
+                Historical Phases
+              </h2>
             {contractData.historicalPhaseProgress
               .filter((p) => p.phase < contractData.currentPhase)
               .map((p) => (
@@ -2082,9 +2146,10 @@ useEffect(() => {
                   participants={contractData.historicalPhaseParticipants[p.phase]}
                 />
               ))}
-
+            </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
