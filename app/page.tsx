@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ethers } from "ethers";
-import { FaEthereum, FaChartLine, FaCoins, FaUsers, FaChevronDown, FaChevronUp, FaAward, FaStream } from "react-icons/fa";
+import { FaEthereum, FaChartLine, FaCoins, FaUsers, FaChevronDown, FaChevronUp, FaStream } from "react-icons/fa";
 import Navbar from "@/components/Navbar";
 import {
   useAccount,
@@ -17,6 +17,21 @@ import { parseEther } from "viem";
 import { CONTRACT_ADDRESSES } from "../lib/wagmi";
 import { PieChart, Pie, Sector, ResponsiveContainer, Cell, Legend, LineChart, Line, XAxis, Tooltip } from "recharts";
 import { motion } from "framer-motion";
+
+// Import new modular components
+// import ParticipateCard from "../components/ParticipateCard"; // TODO: Integrate next
+import ProjectStats from "../components/ProjectStats";
+import PhaseProgress from "../components/PhaseProgress";
+import { useOptimizedContractData } from "../hooks/useOptimizedContractData";
+// import { useUserContractData } from "../hooks/useOptimizedContractData"; // TODO: Integrate user data
+
+// Import loading and responsive components
+import {
+  PhaseParticipantsLoading,
+  MintTokensLoading,
+  ChartLoading,
+} from "../components/LoadingStates";
+import { ResponsiveGrid } from "../components/ResponsiveLayout";
 
 // Types
 
@@ -500,9 +515,19 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isMinting, setIsMinting] = useState<Map<number, boolean>>(new Map());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [activeNetwork, setActiveNetwork] = useState<ChainId>(sepolia.id);
   const [publicProvider, setPublicProvider] = useState<ethers.JsonRpcProvider | null>(null);
   const { address: account, isConnected } = useAccount();
+
+  // Use optimized contract data fetching with Wagmi
+  const optimizedData = useOptimizedContractData(activeNetwork);
+  // const userData = useUserContractData(account, activeNetwork); // TODO: Integrate user data
+
+  // Enhanced validation that prioritizes optimized data
+  const hasOptimizedData = optimizedData.isValidated && !optimizedData.isLoading;
+
   useEffect(() => {
 
     if (typeof window === 'undefined') return;
@@ -566,6 +591,7 @@ export default function Dashboard() {
 
   const [hasPublicLight, setHasPublicLight] = useState(false);
   const [hasPublicDetails, setHasPublicDetails] = useState(false);
+  const [hasValidatedData, setHasValidatedData] = useState(false);
   const [showMoreTop, setShowMoreTop] = useState(false);
 
   const isFetchingPublicRef = useRef(false);
@@ -596,21 +622,50 @@ export default function Dashboard() {
   const userContribFlash = useFlashOnChange(contractData.userCurrentPhaseContributions, v => Number(v as unknown as string || 0).toFixed(4));
   const totalParticipantsFlash = useFlashOnChange(contractData.totalParticipants);
 
+  // Stable data logic - use optimized data when available, fallback to old data
+  const hasStableData = hasOptimizedData && optimizedData.hasBasicData && optimizedData.currentPhase >= 0;
 
+  // CRITICAL: When optimized data is available, completely override contractData to prevent mixed states
+  const stableContractData = hasStableData ? {
+    currentPhase: optimizedData.currentPhase,
+    totalMinted: optimizedData.totalMinted,
+    totalContributions: optimizedData.totalContributions,
+    totalParticipants: optimizedData.totalParticipants,
+    totalParticipantsData: optimizedData.totalParticipantsData,
+    participantsCount: optimizedData.participantsCount,
+    totalTokensThisPhase: optimizedData.totalTokensThisPhase,
+    currentPhaseContributions: optimizedData.currentPhaseContributions,
+    isLaunchComplete: optimizedData.isLaunchComplete,
+    blockNumber: optimizedData.blockNumber,
+    launchBlock: optimizedData.launchBlock,
+    tokenName: optimizedData.tokenName,
+    tokenSymbol: optimizedData.tokenSymbol,
+    // Preserve user-specific data from contractData
+    userCurrentPhaseContributions: contractData.userCurrentPhaseContributions,
+    estimatedReward: contractData.estimatedReward,
+    pendingPhaseParticipants: contractData.pendingPhaseParticipants,
+    phaseContributions: contractData.phaseContributions,
+    phaseParticipants: contractData.phaseParticipants,
+    historicalData: contractData.historicalData,
+    historicalPhaseParticipants: contractData.historicalPhaseParticipants,
+    historicalPhaseProgress: contractData.historicalPhaseProgress,
+    codeSize: contractData.codeSize,
+    providerChainId: contractData.providerChainId,
+  } : contractData;
 
   const launchPhaseProgress =
-    contractData.blockNumber && contractData.launchBlock > 0
-      ? Math.min(((contractData.blockNumber - contractData.launchBlock) / TOTAL_BLOCKS) * 100, 100)
+    stableContractData.blockNumber && stableContractData.launchBlock > 0
+      ? Math.min(((stableContractData.blockNumber - stableContractData.launchBlock) / TOTAL_BLOCKS) * 100, 100)
       : 0;
   const blocksSinceLaunch =
-    contractData.launchBlock > 0
-      ? Math.min(Math.max(0, contractData.blockNumber - contractData.launchBlock), TOTAL_BLOCKS)
+    stableContractData.launchBlock > 0
+      ? Math.min(Math.max(0, stableContractData.blockNumber - stableContractData.launchBlock), TOTAL_BLOCKS)
       : 0;
   const userParticipated = parseFloat(contractData.userCurrentPhaseContributions) > 0 || contractData.pendingPhaseParticipants.length > 0;
-  const phaseStartBlock = contractData.launchBlock + PHASES[contractData.currentPhase].start;
-  const phaseEndBlock = contractData.launchBlock + PHASES[contractData.currentPhase].end;
+  const phaseStartBlock = stableContractData.launchBlock + PHASES[stableContractData.currentPhase].start;
+  const phaseEndBlock = stableContractData.launchBlock + PHASES[stableContractData.currentPhase].end;
   const blocksInPhase = phaseEndBlock - phaseStartBlock;
-  const blocksPassedInPhase = Math.max(0, Math.min(contractData.blockNumber - phaseStartBlock, blocksInPhase));
+  const blocksPassedInPhase = Math.max(0, Math.min(stableContractData.blockNumber - phaseStartBlock, blocksInPhase));
   const launchPhaseEndProgress = blocksInPhase > 0 ? (blocksPassedInPhase / blocksInPhase) * 100 : 0;
 
   // Derived flashes after phase block math is available
@@ -621,7 +676,7 @@ export default function Dashboard() {
   const phaseProgFlash = useFlashOnChange(Math.round(launchPhaseEndProgress));
 
   const uniqueContributors = useMemo(() => {
-    const arr = contractData.totalParticipantsData || [];
+    const arr = stableContractData.totalParticipantsData || [];
     const seen = new Set<string>();
     const out: string[] = [];
     for (const d of arr) {
@@ -629,7 +684,7 @@ export default function Dashboard() {
       if (addr && !seen.has(addr)) { seen.add(addr); out.push(addr); }
     }
     return out;
-  }, [contractData.totalParticipantsData]);
+  }, [stableContractData.totalParticipantsData]);
 
   const pieData = useMemo(
     () =>
@@ -678,6 +733,9 @@ export default function Dashboard() {
   const fetchPublicContractData = useCallback(async () => {
     if (!publicProvider || isFetchingPublicRef.current) return;
     isFetchingPublicRef.current = true;
+
+    // Reset validation state to prevent showing stale data
+    setHasValidatedData(false);
     try {
       // Resolve network, block and contract code first to validate address/network
       const net0 = await publicProvider.getNetwork();
@@ -697,6 +755,7 @@ export default function Dashboard() {
           codeSize: codeSize0,
           isLaunchComplete: false,
         }));
+        setHasValidatedData(true); // Set validation even for error states
         setHasPublicLight(true);
         setHasPublicDetails(false);
         setErrorMessage(`Public RPC is on chain ${providerChainId0}, but UI is set to ${activeNetwork}. Please switch networks.`);
@@ -718,6 +777,7 @@ export default function Dashboard() {
           totalContributions: "0",
           isLaunchComplete: false,
         }));
+        setHasValidatedData(true); // Set validation even for error states
         setHasPublicLight(true);
         setHasPublicDetails(false);
         setErrorMessage("No contract code at this address on the selected network.");
@@ -751,22 +811,28 @@ export default function Dashboard() {
         totalTokensThisPhase: PHASES[derivedPhase].amount,
         isLaunchComplete: isLaunchCompleteQuick,
       }));
-      setHasPublicLight(true);
+      // Don't set hasPublicLight yet - wait for complete data
 
-      // Try to read token identity (best-effort)
-      let tokenName0 = "";
-      let tokenSymbol0 = "";
-      try {
-        tokenName0 = await publicContract.name();
-        tokenSymbol0 = await publicContract.symbol();
-      } catch {}
+      // Parallelize critical data fetching for speed
+      const [
+        phase,
+        minted,
+        phaseTotals0,
+        tokenIdentity
+      ] = await Promise.all([
+        publicContract.getCurrentPhase().then(p => Number(p) || 0),
+        publicContract.totalSupply(),
+        Promise.all(PHASES.map((_, i) => publicContract.totalContributions(i))),
+        // Token identity (best-effort)
+        Promise.all([
+          publicContract.name().catch(() => ""),
+          publicContract.symbol().catch(() => "")
+        ])
+      ]);
 
-      const phase = Number(await publicContract.getCurrentPhase()) || 0;
-      const minted = await publicContract.totalSupply();
+      const [tokenName0, tokenSymbol0] = tokenIdentity;
       const isLaunchComplete0 = launch0 > 0 && block0 >= launch0 + TOTAL_BLOCKS;
-      const currentPhaseTotalContrib = await publicContract.totalContributions(phase);
-      // Precompute quick totals
-      const phaseTotals0 = await Promise.all(PHASES.map((_, i) => publicContract.totalContributions(i)));
+      const currentPhaseTotalContrib = phaseTotals0[phase] || BigInt(0);
       const totalContribAcross = phaseTotals0.reduce((acc, c) => acc + BigInt(c), BigInt(0));
 
       setContractData((prev) => ({
@@ -784,6 +850,9 @@ export default function Dashboard() {
         isLaunchComplete: isLaunchComplete0,
         codeSize: codeSize0,
       }));
+
+      // Only show data when we have validated, complete information
+      setHasValidatedData(true);
       setHasPublicLight(true);
 
       const block = await publicProvider.getBlockNumber();
@@ -925,11 +994,19 @@ export default function Dashboard() {
 
     } catch (error) {
       console.error("Failed to fetch public contract data:", error) ;
-      setErrorMessage("Error fetching public blockchain data. Please try refreshing.");
+      // Set validation even on error to prevent infinite loading
+      setHasValidatedData(true);
+      // Only show error if this is the initial load, user is not connected, AND we don't have optimized data
+      if (!hasPublicDetails || !isConnected) {
+        // Don't show error if we have valid optimized data
+        if (!hasOptimizedData) {
+          setErrorMessage("Error fetching public blockchain data. Please try refreshing.");
+        }
+      }
     } finally {
       isFetchingPublicRef.current = false;
     }
-  }, [activeNetwork, publicProvider, contractData.blockNumber, isConnected]);
+  }, [activeNetwork, publicProvider, contractData.blockNumber, isConnected, hasPublicDetails, hasOptimizedData]);
 
   const fetchUserContractData = useCallback(async () => {
     if (!contract || !provider || !account || isFetchingUserRef.current) return;
@@ -1129,11 +1206,14 @@ export default function Dashboard() {
       setErrorMessage(null);
     } catch (error) {
       console.error("Failed to fetch user contract data:", error);
-      setErrorMessage("Error fetching user blockchain data. Please try refreshing.");
+      // Only show error if this is not a background refresh and user is connected
+      if (isConnected && account) {
+        setErrorMessage("Error fetching user blockchain data. Please try refreshing.");
+      }
     } finally {
       isFetchingUserRef.current = false;
     }
-  }, [contract, provider, account, publicProvider, activeNetwork]);
+  }, [contract, provider, account, publicProvider, activeNetwork, isConnected]);
 
   const [txMessage, setTxMessage] = useState<string | null>(null);
 
@@ -1206,34 +1286,66 @@ export default function Dashboard() {
   useEffect(() => {
     if (isConnected && account && walletClient) {
       setIsLoading(true);
+      // Only show loading overlay on first load
+      if (!hasInitialLoad) {
+        setIsInitialLoading(true);
+      }
       const init = async () => {
-        // Do not auto-switch chains here to avoid flicker; Navbar will call switchChain
-        const providerInstance = new ethers.BrowserProvider((window as unknown as { ethereum: EIP1193Provider }).ethereum);
-        const signerInstance = await providerInstance.getSigner();
-        const contractInstance = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, signerInstance);
-        setProvider(providerInstance);
-        setSigner(signerInstance);
-        setContract(contractInstance);
-        await fetchUserContractData();
-        setTimeout(fetchUserContractData, 1500);
-        setIsLoading(false);
+        try {
+          // Do not auto-switch chains here to avoid flicker; Navbar will call switchChain
+          const providerInstance = new ethers.BrowserProvider((window as unknown as { ethereum: EIP1193Provider }).ethereum);
+          const signerInstance = await providerInstance.getSigner();
+          const contractInstance = new ethers.Contract(CONTRACT_ADDRESSES[activeNetwork], ABI, signerInstance);
+          setProvider(providerInstance);
+          setSigner(signerInstance);
+          setContract(contractInstance);
+          await fetchUserContractData();
+          setTimeout(fetchUserContractData, 1500);
+        } catch (error) {
+          console.error("Failed to initialize wallet connection:", error);
+          setErrorMessage("Failed to initialize wallet connection. Please try refreshing.");
+        } finally {
+          setIsLoading(false);
+          setIsInitialLoading(false);
+          setHasInitialLoad(true);
+        }
       };
       init();
     } else if (publicProvider) {
       setIsLoading(true);
-      fetchPublicContractData().then(() => setIsLoading(false));
+      // Only show loading overlay on first load
+      if (!hasInitialLoad) {
+        setIsInitialLoading(true);
+      }
+      // Only fetch with old method if optimized data is not available AND not loading
+      if (!hasOptimizedData && !optimizedData.isLoading) {
+        fetchPublicContractData().then(() => {
+          setIsLoading(false);
+          setIsInitialLoading(false);
+          setHasInitialLoad(true);
+        }).catch(() => {
+          setIsLoading(false);
+          setIsInitialLoading(false);
+          setHasInitialLoad(true);
+        });
+      } else if (hasOptimizedData || optimizedData.isLoading) {
+        // If we have optimized data or it's loading, skip old fetching
+        setIsLoading(false);
+        setIsInitialLoading(false);
+        setHasInitialLoad(true);
+      }
     }
-  }, [isConnected, walletClient, account, activeNetwork, switchChain, fetchUserContractData, fetchPublicContractData, publicProvider]);
+  }, [isConnected, walletClient, account, activeNetwork, switchChain, fetchUserContractData, fetchPublicContractData, publicProvider, hasInitialLoad, hasOptimizedData, optimizedData.isLoading]);
 
-  // Ensure public data loads even before wallet client is ready
+  // Ensure public data loads even before wallet client is ready (only if no optimized data)
   useEffect(() => {
-    if (!publicProvider) return;
+    if (!publicProvider || hasOptimizedData || optimizedData.isLoading) return;
     fetchPublicContractData();
     const interval = setInterval(() => {
-      if (!hasInitialUserFetch) fetchPublicContractData();
+      if (!hasInitialUserFetch && !hasOptimizedData && !optimizedData.isLoading) fetchPublicContractData();
     }, 12000);
     return () => clearInterval(interval);
-  }, [publicProvider, hasInitialUserFetch, fetchPublicContractData]);
+  }, [publicProvider, hasInitialUserFetch, fetchPublicContractData, hasOptimizedData, optimizedData.isLoading]);
 
   // Clear user error when disconnected
   useEffect(() => {
@@ -1244,6 +1356,16 @@ export default function Dashboard() {
       }
     }
   }, [isConnected, errorMessage]);
+
+  // Auto-dismiss error messages after 10 seconds
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => {
+        setErrorMessage(null);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
 
 // Auto-dismiss the confirmation banner when the participated phase finishes
 useEffect(() => {
@@ -1420,7 +1542,7 @@ useEffect(() => {
 
 
   return (
-    <div className="min-h-screen text-white overflow-x-hidden pt-24 md:pt-28">
+    <main role="main" className="min-h-screen text-white overflow-x-hidden pt-24 md:pt-28">
       <Navbar
         account={account}
         provider={provider}
@@ -1428,7 +1550,16 @@ useEffect(() => {
         activeNetwork={activeNetwork}
         setActiveNetwork={(id: number) => { setActiveNetwork(id as ChainId); switchChain({ chainId: id as ChainId }); }}
       />
-      <div className="container mx-auto">
+      <div className="mx-auto max-w-7xl flex flex-col px-4 sm:px-6 lg:px-8 md:gap-2 lg:gap-3">
+        {isInitialLoading && !hasInitialLoad && !hasStableData && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="glass p-8 rounded-lg text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <p className="text-lg" style={{ color: 'var(--foreground)' }}>Loading blockchain data...</p>
+              <p className="text-sm mt-2" style={{ color: 'var(--muted)' }}>Please wait while we fetch the latest information</p>
+            </div>
+          </div>
+        )}
         <motion.header
           className="text-center mb-12"
           initial={{ opacity: 0, y: -50 }}
@@ -1449,7 +1580,7 @@ useEffect(() => {
           <p className="mt-2 text-gray-300 text-lg">Participate in a decentralized ecosystem</p>
         </motion.header>
 
-        <div className="mt-4 flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-2">
           <div className="text-sm text-gray-300">
             Contract: <span className="font-mono text-white">{CONTRACT_ADDRESSES[activeNetwork]}</span>
           </div>
@@ -1495,18 +1626,18 @@ useEffect(() => {
                   blocksPassed={p.blocksPassed}
                   totalBlocks={p.totalBlocks}
                   totalTokens={PHASES[p.phase].amount}
-                  participants={contractData.historicalPhaseParticipants[p.phase]}
+                  participants={stableContractData.historicalPhaseParticipants[p.phase]}
                 />
               ))}
             </div>
           </div>
         )}
 
-        <div className="grid md:grid-cols-2 gap-8 items-start justify-center mt-8">
-          <div id="participate" className="glass p-6 ring-white/10 space-y-8 h-full">
+        <div className="grid md:grid-cols-2 gap-8 items-start justify-center">
+          <div id="participate" className="glass w-full p-4 sm:p-6 lg:p-8 ring-white/10 space-y-8 h-full">
 
             <motion.div
-              className="space-y-2"
+              className="pt-6 mt-6 border-t border-white/10 space-y-2"
               initial={{ opacity: 0, x: -50 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
@@ -1574,7 +1705,7 @@ useEffect(() => {
                 step="0.01"
                 min="0.001"
                 placeholder="Enter ETH amount (min 0.001)"
-                disabled={!isConnected || isSending || contractData.isLaunchComplete}
+                disabled={!isConnected || isSending || contractData.isLaunchComplete || !hasStableData}
               />
               <div className="mt-3 flex gap-2 flex-wrap">
                 {[0.01, 0.05, 0.1].map((v) => (
@@ -1590,7 +1721,8 @@ useEffect(() => {
                       backdropFilter: 'blur(10px)',
                       WebkitBackdropFilter: 'blur(10px)'
                     }}
-                    disabled={!isConnected || isSending || contractData.isLaunchComplete}
+                    disabled={!isConnected || isSending || contractData.isLaunchComplete || !hasStableData}
+                    title={!isConnected ? "Connect wallet to set amount" : (contractData.isLaunchComplete ? "Launch complete" : (!hasStableData ? "Waiting for validated blockchain data..." : undefined))}
                   >
                     {v} ETH
                   </button>
@@ -1600,19 +1732,41 @@ useEffect(() => {
 	              <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3">
 	                <div className="grid grid-cols-2 gap-3 text-xs">
 	                  <div className="text-gray-300">Current Contribution</div>
-	                  <div className={`font-mono text-white ${userContribFlash ? 'flash-text' : ''}`}><ToggleDecimals value={contractData.userCurrentPhaseContributions} /> ETH</div>
+	                  <div className={`font-mono text-white ${userContribFlash ? 'flash-text' : ''}`}>
+	                    {isInitialLoading && !hasInitialLoad ? (
+	                      <span className="inline-block h-4 w-16 bg-gray-700/60 rounded animate-pulse" />
+	                    ) : (
+	                      <><ToggleDecimals value={contractData.userCurrentPhaseContributions} /> ETH</>
+	                    )}
+	                  </div>
 	                  <div className="text-gray-300">Est. Reward Now</div>
-	                  <div className={`font-mono text-white ${estRewardFlash ? 'flash-text' : ''}`}><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
+	                  <div className={`font-mono text-white ${estRewardFlash ? 'flash-text' : ''}`}>
+	                    {isInitialLoading && !hasInitialLoad ? (
+	                      <span className="inline-block h-4 w-20 bg-gray-700/60 rounded animate-pulse" />
+	                    ) : (
+	                      <><ToggleDecimals value={contractData.estimatedReward} /> MMM</>
+	                    )}
+	                  </div>
 	                  <div className="text-gray-300">Your Share</div>
 	                  <div className={`font-mono text-white ${shareFlash ? 'flash-text' : ''}`}>
-	                    {(() => {
-	                      const total = parseFloat(contractData.totalTokensThisPhase) || 0;
-	                      const est = parseFloat(contractData.estimatedReward) || 0;
-	                      return total > 0 ? `${((est / total) * 100).toFixed(1)}%` : "—";
-	                    })()}
+	                    {isInitialLoading && !hasInitialLoad ? (
+	                      <span className="inline-block h-4 w-12 bg-gray-700/60 rounded animate-pulse" />
+	                    ) : (
+	                      (() => {
+	                        const total = parseFloat(contractData.totalTokensThisPhase) || 0;
+	                        const est = parseFloat(contractData.estimatedReward) || 0;
+	                        return total > 0 ? `${((est / total) * 100).toFixed(1)}%` : "—";
+	                      })()
+	                    )}
 	                  </div>
 	                  <div className="text-gray-300">Blocks left</div>
-	                  <div className={`font-mono text-white ${blocksLeftFlash ? 'flash-text' : ''}`}>{Math.max(0, blocksInPhase - blocksPassedInPhase)}</div>
+	                  <div className={`font-mono text-white ${blocksLeftFlash ? 'flash-text' : ''}`}>
+	                    {isInitialLoading && !hasInitialLoad ? (
+	                      <span className="inline-block h-4 w-8 bg-gray-700/60 rounded animate-pulse" />
+	                    ) : (
+	                      Math.max(0, blocksInPhase - blocksPassedInPhase)
+	                    )}
+	                  </div>
 	                </div>
 	              </div>
 
@@ -1627,16 +1781,19 @@ useEffect(() => {
                     {txMessage || errorMessage}
                   </p>
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                       setTxMessage(null);
                       setErrorMessage(null);
                     }}
-                    className="ml-3 text-xs px-2 py-1 rounded transition-colors"
+                    className="ml-3 text-xs px-2 py-1 rounded transition-colors hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     style={{
                       backgroundColor: 'var(--glass-bg)',
                       border: `1px solid var(--glass-border)`,
                       color: 'var(--foreground)'
                     }}
+                    type="button"
                   >
                     Dismiss
                   </button>
@@ -1644,10 +1801,11 @@ useEffect(() => {
               )}
               <button
                 onClick={sendEth}
-                disabled={!isConnected || isSending || contractData.isLaunchComplete}
+                disabled={!isConnected || isSending || contractData.isLaunchComplete || !hasStableData}
+                title={!isConnected ? "Connect wallet to participate" : (contractData.isLaunchComplete ? "Launch complete" : (!hasStableData ? "Waiting for validated blockchain data..." : (isSending ? "Processing..." : undefined)))}
                 className="mt-4 w-full py-3 rounded-lg disabled:bg-gray-600 transition-all font-semibold"
                 style={{
-                  background: !isConnected || isSending || contractData.isLaunchComplete
+                  background: (!isConnected || isSending || contractData.isLaunchComplete || !hasStableData)
                     ? '#6b7280'
                     : `linear-gradient(to right, var(--primary), var(--accent))`,
                   color: '#ffffff'
@@ -1681,12 +1839,18 @@ useEffect(() => {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.2 }}
               >
-                <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--accent)' }}>
-                  <FaCoins className="mr-2" style={{ color: 'var(--accent)' }} /> Mint Tokens
-                </h2>
-                {contractData.mintablePhases.length === 0 && contractData.mintedPhases.length === 0 ? (
-                  <p className="text-gray-400">No phases ready for minting or previously minted.</p>
+                {(!hasStableData || !hasInitialUserFetch) && isConnected ? (
+                  <MintTokensLoading />
                 ) : (
+                  <>
+                    <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--accent)' }}>
+                      <FaCoins className="mr-2" style={{ color: 'var(--accent)' }} /> Mint Tokens
+                    </h2>
+                    {!isConnected ? (
+              <p className="text-gray-400">Connect wallet to see your mintable tokens.</p>
+            ) : contractData.mintablePhases.length === 0 && contractData.mintedPhases.length === 0 ? (
+                      <p className="text-gray-400">No phases ready for minting or previously minted.</p>
+                    ) : (
                   <div className="space-y-4">
                     {contractData.mintablePhases.length > 0 && (
                       <>
@@ -1701,10 +1865,11 @@ useEffect(() => {
                             <button
                               key={phase}
                               onClick={() => mintTokens(phase)}
-                              disabled={isLoading && (isMinting.get(phase) || isMinting.get(-1))}
+                              disabled={!hasStableData || isLoading || isPhaseMinting || (isMinting.get(-1) || false)}
+                              title={!hasStableData ? "Waiting for validated blockchain data..." : (isLoading ? "Processing..." : (isPhaseMinting ? "Minting in progress" : undefined))}
                               className="w-full py-2 rounded-lg disabled:bg-gray-600 transition-all font-medium"
                               style={{
-                                backgroundColor: isLoading && (isMinting.get(phase) || isMinting.get(-1))
+                                backgroundColor: (!hasStableData || isLoading || isPhaseMinting || (isMinting.get(-1) || false))
                                   ? '#6b7280'
                                   : 'var(--accent)',
                                 color: '#ffffff'
@@ -1718,7 +1883,8 @@ useEffect(() => {
                         })}
                         <button
                           onClick={multiMint}
-                          disabled={isLoading}
+                          disabled={!hasStableData || isLoading || (isMinting.get(-1) || false)}
+                          title={!hasStableData ? "Waiting for validated blockchain data..." : (isLoading ? "Processing..." : ((isMinting.get(-1) || false) ? "Minting in progress" : undefined))}
                           className="w-full py-2 bg-purple-600 rounded-lg hover:bg-purple-700 disabled:bg-gray-600 transition-all font-medium"
                         >
                           {isMinting.get(-1) ? "Minting All..." : `Mint All (${abbreviateNumber(totalMintableTokens)} MMM)`}
@@ -1736,6 +1902,8 @@ useEffect(() => {
                       </>
                     )}
                   </div>
+                    )}
+                  </>
                 )}
               </motion.div>
             )}
@@ -1744,121 +1912,46 @@ useEffect(() => {
           </div>
 
           <div className="space-y-8">
-            <motion.div
-              className="space-y-4"
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h2 className="text-2xl font-bold mb-4" style={{ color: 'var(--primary)' }}>
-                {!hasPublicLight ? "Phase Progress" : (contractData.isLaunchComplete ? "Launch Complete" : `Phase ${contractData.currentPhase} Progress`)}
-              </h2>
-              {contractData.isLaunchComplete ? (
-                <p className="text-gray-300">The token launch has concluded after {blocksSinceLaunch} blocks.</p>
-              ) : (
-                <div className="space-y-4">
-                  {!hasPublicLight ? (
-                    <div className="space-y-4">
-                      <div>
-                        <div className="h-4 w-64 bg-gray-700/60 rounded animate-pulse mb-2"></div>
-                        <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
-                          <div className="animate-pulse bg-gray-600 h-full rounded-full w-1/3"></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="h-4 w-40 bg-gray-700/60 rounded animate-pulse mb-2"></div>
-                        <div className="bg-gray-700 h-3 rounded-full overflow-hidden">
-                          <div className="animate-pulse bg-gray-600 h-full rounded-full w-1/4"></div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <p className="text-sm text-gray-300">
-                          Total Progress: {Math.round(launchPhaseProgress)}% ({blocksSinceLaunch} / {TOTAL_BLOCKS} blocks)
-                        </p>
-                        <div className={`bg-gray-700 h-3 rounded-full overflow-hidden progress-shine ${totalProgFlash ? 'shine-active' : ''}`}>
-                          <motion.div
-                            className="h-full rounded-full"
-                            style={{ background: `linear-gradient(to right, var(--primary), var(--accent), var(--secondary))` }}
-                            initial={{ width: 0 }}
-                            animate={{ width: `${launchPhaseProgress}%` }}
-                            transition={{ duration: 1 }}
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-300">Phase Progress: {Math.round(launchPhaseEndProgress)}%</p>
-                        <div className={`bg-gray-700 h-3 rounded-full overflow-hidden progress-shine ${phaseProgFlash ? 'shine-active' : ''}`}>
-                          <motion.div
-                            className="h-full rounded-full"
-                            style={{ backgroundColor: 'var(--accent)' }}
-                            initial={{ width: 0 }}
-                            animate={{ width: `${launchPhaseEndProgress}%` }}
-                            transition={{ duration: 1 }}
-                          />
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div className="rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-3">
-                      <div className="flex items-center gap-2 text-xs text-gray-300">
-                        <FaCoins className="text-indigo-300" />
-                        <span>Total Tokens</span>
-                      </div>
-                      <div className="mt-1.5 font-mono text-white"><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</div>
-                    </div>
-                    {isConnected && userParticipated && (
-                      <>
-                          <div className="rounded-xl border border-emerald-400/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-3">
-                            <div className="flex items-center gap-2 text-xs text-gray-300">
-                              <FaEthereum className="text-emerald-300" />
-                              <span>Your Contribution</span>
-                            </div>
-                            <div className={`mt-1.5 font-mono text-white ${userContribFlash ? 'flash-text' : ''}`}><ToggleDecimals value={contractData.userCurrentPhaseContributions} /> ETH</div>
-                          </div>
-                          <div className="rounded-xl border border-white/10 bg-gradient-to-br from-amber-500/10 to-pink-500/10 p-3">
-                          <div className="flex items-center gap-2 text-xs text-gray-300">
-                            <FaAward className="text-amber-300" />
-                            <span>Your Reward</span>
-                          </div>
-                          <div className={`mt-1.5 font-mono text-white ${estRewardFlash ? 'flash-text' : ''}`}><ToggleDecimals value={contractData.estimatedReward} /> MMM</div>
-                        </div>
-                      </>
-                    )}
-                    <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-3">
-                      <div className="flex items-center gap-2 text-xs text-gray-300">
-                        <FaUsers className="text-blue-300" />
-                        <span>Participants</span>
-                      </div>
-                      <div className={`mt-1.5 font-mono text-white ${participantsFlash ? 'flash-text' : ''}`}>{contractData.participantsCount}</div>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-gradient-to-br from-fuchsia-500/10 to-indigo-500/10 p-3 lg:col-span-3">
-                      <div className="flex items-center gap-2 text-xs text-gray-300">
-                        <FaStream className="text-fuchsia-300" />
-                        <span>Blocks</span>
-                      </div>
-                      <div className="font-mono text-white">{phaseStartBlock} &rarr; {phaseEndBlock}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </motion.div>
+            <PhaseProgress
+              currentPhase={stableContractData.currentPhase}
+              isLaunchComplete={stableContractData.isLaunchComplete}
+              totalProgress={launchPhaseProgress}
+              phaseProgress={launchPhaseEndProgress}
+              blocksSinceLaunch={blocksSinceLaunch}
+              totalBlocks={TOTAL_BLOCKS}
+              blocksLeft={blocksLeft}
+              isLoading={!hasStableData && (optimizedData.isLoading || !hasValidatedData)}
+              totalTokensThisPhase={stableContractData.totalTokensThisPhase}
+              userCurrentPhaseContributions={contractData.userCurrentPhaseContributions}
+              estimatedReward={contractData.estimatedReward}
+              isConnected={isConnected}
+              userParticipated={userParticipated}
+              userContribFlash={userContribFlash}
+              estRewardFlash={estRewardFlash}
+              totalProgFlash={totalProgFlash}
+              phaseProgFlash={phaseProgFlash}
+              participantsCount={stableContractData.participantsCount}
+              participantsFlash={participantsFlash}
+              phaseStartBlock={phaseStartBlock}
+              phaseEndBlock={phaseEndBlock}
+            />
 
-            <div className="pt-6 mt-6 border-t border-white/10">
+            <div className="pt-6 ">
               {!contractData.isLaunchComplete ? (
-                <PieChartCard
-                  title="Participants"
-                  icon={<FaUsers className="text-blue-400" />}
-                  data={contractData.phaseParticipants}
-                  totalTokens={contractData.totalTokensThisPhase}
-                  currentPhase={contractData.currentPhase}
-                />
+                (!hasStableData || !optimizedData.hasPhaseData) ? (
+                  <PhaseParticipantsLoading />
+                ) : (
+                  <PieChartCard
+                    title={`Participants (Phase ${stableContractData.currentPhase})`}
+                    icon={<FaUsers className="text-blue-400" />}
+                    data={stableContractData.phaseParticipants}
+                    totalTokens={stableContractData.totalTokensThisPhase}
+                    currentPhase={stableContractData.currentPhase}
+                  />
+                )
               ) : (
                 <div className="gap-4 flex flex-col">
-                  {contractData.historicalPhaseParticipants.slice(0, 3).map((participants, index) => (
+                  {stableContractData.historicalPhaseParticipants.slice(0, 3).map((participants, index) => (
                     <PieChartCard
                       key={index}
                       title=""
@@ -1876,79 +1969,48 @@ useEffect(() => {
 
         {/* Project Stats - Full Width Section */}
         <div className="mt-12">
-          <div className="glass p-6 ring-white/10 space-y-8">
-            <motion.div
-              className="pt-6 mt-6 border-t border-white/10"
-              initial={{ opacity: 0, x: 50 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--primary)' }}>
-                <FaChartLine className="mr-2" style={{ color: 'var(--primary)' }} /> Project Stats
-              </h2>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
-                    <FaCoins style={{ color: 'var(--primary)' }} />
-                    <span>Total Minted</span>
-                  </div>
-                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalMinted} /> MMM</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                </div>
-                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
-                    <FaEthereum style={{ color: 'var(--accent)' }} />
-                    <span>Total Contributions</span>
-                  </div>
-                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalContributions} /> ETH</>) : (<span className="inline-block h-4 w-28 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                </div>
-                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
-                    <FaUsers style={{ color: 'var(--secondary)' }} />
-                    <span>Total Participants</span>
-                  </div>
-                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<span className={totalParticipantsFlash ? 'flash-text' : ''}>{contractData.totalParticipants}</span>) : (<span className="inline-block h-4 w-12 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                </div>
-                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
-                    <FaCoins style={{ color: 'var(--primary)' }} />
-                    <span>Phase Tokens</span>
-                  </div>
-                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.totalTokensThisPhase} /> MMM</>) : (<span className="inline-block h-4 w-20 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                </div>
-                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
-                    <FaEthereum style={{ color: 'var(--accent)' }} />
-                    <span>Phase Contributions</span>
-                  </div>
-                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{hasPublicLight ? (<><ToggleDecimals value={contractData.currentPhaseContributions} /> ETH</>) : (<span className="inline-block h-4 w-24 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                </div>
-                <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
-                  <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
-                    <FaUsers style={{ color: 'var(--secondary)' }} />
-                    <span>Phase Participants</span>
-                  </div>
-                  <div className="mt-1.5 font-mono text-white">{hasPublicLight ? (<span className={participantsFlash ? 'flash-text' : ''}>{contractData.participantsCount}</span>) : (<span className="inline-block h-4 w-10 bg-gray-700/60 rounded animate-pulse" />)}</div>
-                </div>
-              </div>
-            </motion.div>
+          <ProjectStats
+            totalMinted={stableContractData.totalMinted}
+            totalContributions={stableContractData.totalContributions}
+            totalParticipants={stableContractData.totalParticipants}
+            totalTokensThisPhase={stableContractData.totalTokensThisPhase}
+            currentPhaseContributions={stableContractData.currentPhaseContributions}
+            participantsCount={stableContractData.participantsCount}
+            isLoading={!hasStableData && (optimizedData.isLoading || !hasPublicLight)}
+            isValidated={hasStableData || hasValidatedData}
+            totalParticipantsFlash={totalParticipantsFlash}
+            participantsFlash={participantsFlash}
+          />
+        </div>
 
-            <div className="pt-6 mt-6 border-t border-white/10">
-              {hasPublicDetails ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="">
+          <div className="glass w-full p-4 sm:p-6 lg:p-8 ring-white/10 space-y-8">
+
+            <div className="">
+              {hasPublicDetails || hasStableData ? (
+                <ResponsiveGrid cols={{ default: 1, lg: 2 }} gap="lg">
                   <div>
-                    <PieChartCard
-                      title="Global Contributions"
-                      icon={<FaUsers style={{ color: 'var(--primary)' }} />}
-                      data={contractData.totalParticipantsData}
-                      totalTokens={contractData.totalMinted}
-                    />
+                    {!hasStableData && optimizedData.isLoading ? (
+                      <ChartLoading title="Global Contributions" />
+                    ) : (
+                      <PieChartCard
+                        title="Global Contributions"
+                        icon={<FaUsers style={{ color: 'var(--primary)' }} />}
+                        data={stableContractData.totalParticipantsData}
+                        totalTokens={stableContractData.totalMinted}
+                      />
+                    )}
                   </div>
-                  <div className="glass p-4">
+                  <aside aria-label="Top Contributors" className="glass p-4">
                     <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--secondary)' }}>Top Contributors</h3>
-                    {(() => {
-                      const total = parseFloat(contractData.totalContributions) || 0;
+                    {(!hasStableData && optimizedData.isLoading) ? (
+                      <p className="text-gray-400">Loading top contributors...</p>
+                    ) : (
+                      (() => {
+                      const total = parseFloat(stableContractData.totalContributions) || 0;
                       const sliceCount = showMoreTop ? 20 : 5;
-                      const top = [...contractData.totalParticipantsData]
+                      const participantsData = stableContractData.totalParticipantsData;
+                      const top = [...participantsData]
                         .sort((a, b) => b.value - a.value)
                         .slice(0, sliceCount);
                       return (
@@ -1970,7 +2032,7 @@ useEffect(() => {
                                     {p.address ? `${p.address.slice(0, 6)}...${p.address.slice(-4)}` : p.name}
                                   </button>
                                   <span className="font-mono text-white">
-                                    {p.tokens !== undefined ? `${abbreviateNumber(p.tokens)} MMM` : `${p.value.toFixed(3)} ETH`}
+                                    {`${p.value.toFixed(3)} ETH`}
                                   </span>
                                 </div>
                                 {total > 0 && (
@@ -2000,18 +2062,50 @@ useEffect(() => {
                           </div>
                         </>
                       );
-                    })()}
-                  </div>
-                </div>
+                    })() )}
+                  </aside>
+                </ResponsiveGrid>
               ) : (
-                <div>
-                  <div className="h-6 w-48 bg-gray-700/60 rounded animate-pulse mb-4" />
-                  <div className="h-48 w-full bg-gray-700/40 rounded animate-pulse" />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Global Contributions Loading */}
+                  <div className="glass p-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="h-5 w-5 bg-gray-700/60 rounded animate-pulse" />
+                      <div className="h-5 w-32 bg-gray-700/60 rounded animate-pulse" />
+                    </div>
+                    <div className="flex items-center justify-center h-48">
+                      <div className="relative">
+                        <div className="h-32 w-32 border-4 border-gray-700/60 rounded-full animate-pulse" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="text-center">
+                            <div className="h-4 w-16 bg-gray-700/60 rounded animate-pulse mb-2" />
+                            <div className="h-3 w-12 bg-gray-700/60 rounded animate-pulse" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Top Contributors Loading */}
+                  <div className="glass p-4">
+                    <div className="h-5 w-28 bg-gray-700/60 rounded animate-pulse mb-4" />
+                    <div className="space-y-3">
+                      {[...Array(5)].map((_, i) => (
+                        <div key={i} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="h-4 w-20 bg-gray-700/60 rounded animate-pulse" />
+                            <div className="h-4 w-16 bg-gray-700/60 rounded animate-pulse" />
+                          </div>
+                          <div className="h-2 bg-gray-700/60 rounded animate-pulse" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="pt-6 mt-6 border-t border-white/10">
+            <div className="border-t border-white/10">
               <div className="mb-3 flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <span className="inline-block h-2.5 w-2.5 rounded-full bg-indigo-500" />
@@ -2033,37 +2127,45 @@ useEffect(() => {
                   );
                 })()}
               </div>
-              <PieChartCard
-                title="Supply Details"
-                icon={<FaCoins style={{ color: 'var(--accent)' }} />}
-                data={[
-                  { name: "Realized", value: parseFloat(contractData.totalMinted), tokens: parseFloat(contractData.totalMinted) },
-                  { name: "Unrealized", value: TOTAL_SUPPLY - parseFloat(contractData.totalMinted), tokens: TOTAL_SUPPLY - parseFloat(contractData.totalMinted) },
-                ]}
-                totalTokens={TOTAL_SUPPLY.toString()}
-                colors={["#4f46e5", "#d1d5db"]}
-                extraText={`Total Minted: ${abbreviateNumber(parseFloat(contractData.totalMinted))} MMM`}
-              />
+              {(!hasStableData && optimizedData.isLoading) ? (
+                <ChartLoading title="Supply Details" />
+              ) : (
+                <PieChartCard
+                  title="Supply Details"
+                  icon={<FaCoins style={{ color: 'var(--accent)' }} />}
+                  data={[
+                    { name: "Realized", value: parseFloat(stableContractData.totalMinted), tokens: parseFloat(stableContractData.totalMinted) },
+                    { name: "Unrealized", value: TOTAL_SUPPLY - parseFloat(stableContractData.totalMinted), tokens: TOTAL_SUPPLY - parseFloat(stableContractData.totalMinted) },
+                  ]}
+                  totalTokens={TOTAL_SUPPLY.toString()}
+                  colors={["#4f46e5", "#d1d5db"]}
+                  extraText={`Total Minted: ${abbreviateNumber(parseFloat(stableContractData.totalMinted))} MMM`}
+                />
+              )}
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-10 space-y-10 items-start justify-center">
-
         {isConnected && (
-          <div className="mt-12">
-            <div className="glass p-6 ring-white/10 space-y-6">
-              <h2 className="text-2xl font-bold flex items-center" style={{ color: 'var(--primary)' }}>
-                <FaUsers className="mr-3" style={{ color: 'var(--primary)' }} />
-                Your History
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+          <div role="region" aria-label="Your History" className="w-full">
+            <div className="glass w-full p-4 sm:p-6 lg:p-8 ring-white/10 space-y-8">
+              <motion.div
+                className="border-white/10"
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--primary)' }}>
+                  <FaUsers className="mr-2" style={{ color: 'var(--primary)' }} />
+                  Your History
+                </h2>
+              <div className="">
                 <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
                   <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
                     <FaEthereum style={{ color: 'var(--accent)' }} />
                     <span>Total Contributions</span>
                   </div>
-                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{totalUserContributions.toFixed(4)} ETH</div>
+                  <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{(isConnected && !hasInitialUserFetch) ? '—' : `${totalUserContributions.toFixed(4)} ETH`}</div>
                 </div>
                 {(() => {
                   const totalMintedUser = (contractData.historicalData || []).reduce((s, x) => s + (x.minted || 0), 0);
@@ -2073,7 +2175,7 @@ useEffect(() => {
                         <FaCoins style={{ color: 'var(--secondary)' }} />
                         <span>Your Realized MMM</span>
                       </div>
-                      <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{abbreviateNumber(totalMintedUser)} MMM</div>
+                      <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{(isConnected && !hasInitialUserFetch) ? '—' : `${abbreviateNumber(totalMintedUser)} MMM`}</div>
                     </div>
                   );
                 })()}
@@ -2086,7 +2188,7 @@ useEffect(() => {
                 </div>
               </div>
 
-              <div className="mt-6">
+              <div className="">
                 <h3 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Unique Contributors (All-time)</h3>
                 <div className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Count: {uniqueContributors.length}</div>
                 {uniqueContributors.length > 0 ? (
@@ -2112,28 +2214,44 @@ useEffect(() => {
                 )}
               </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              <PieChartCard
-                title="Your Contributions"
-                icon={<FaEthereum className="text-indigo-400" />}
-                data={stablePieData}
-                extraText={`Total Contributions: ${totalUserContributions.toFixed(4)} ETH`}
-              />
-              <MintedTokensChart data={contractData.historicalData} />
-              <ContributionsChart data={contractData.historicalData} />
-            </div>
+            {(isConnected && !hasInitialUserFetch) ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <ChartLoading title="Your Contributions" />
+                <ChartLoading title="Minted Tokens" />
+                <ChartLoading title="Contributions" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <PieChartCard
+                  title="Your Contributions"
+                  icon={<FaEthereum className="text-indigo-400" />}
+                  data={stablePieData}
+                  extraText={`Total Contributions: ${totalUserContributions.toFixed(4)} ETH`}
+                />
+                <MintedTokensChart data={contractData.historicalData} />
+                <ContributionsChart data={contractData.historicalData} />
+              </div>
+            )}
+              </motion.div>
             </div>
           </div>
         )}
 
         {!contractData.isLaunchComplete && (
-          <div className="mt-12">
-            <div className="glass p-6 ring-white/10 space-y-6">
-              <h2 className="text-2xl font-bold flex items-center" style={{ color: 'var(--primary)' }}>
-                <FaChartLine className="mr-3" style={{ color: 'var(--primary)' }} />
-                Historical Phases
-              </h2>
-            {contractData.historicalPhaseProgress
+          <div role="region" aria-label="Historical Phases" className="w-full">
+            <div className="glass w-full p-4 sm:p-6 lg:p-8 ring-white/10 space-y-8">
+              <motion.div
+                className="border-white/10"
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--primary)' }}>
+                  <FaChartLine className="mr-2" style={{ color: 'var(--primary)' }} />
+                  Historical Phases
+                </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {contractData.historicalPhaseProgress
               .filter((p) => p.phase < contractData.currentPhase)
               .map((p) => (
                 <HistoricalPhaseCard
@@ -2143,14 +2261,16 @@ useEffect(() => {
                   blocksPassed={p.blocksPassed}
                   totalBlocks={p.totalBlocks}
                   totalTokens={PHASES[p.phase].amount}
-                  participants={contractData.historicalPhaseParticipants[p.phase]}
+                  participants={stableContractData.historicalPhaseParticipants[p.phase]}
                 />
               ))}
             </div>
+              </motion.div>
+            </div>
           </div>
         )}
-        </div>
+        
       </div>
-    </div>
+    </main>
   );
 }

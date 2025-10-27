@@ -18,6 +18,6 @@ export const config = createConfig({
 // Define contract addresses per chain
 export const CONTRACT_ADDRESSES = {
   [holesky.id]: "0xA604fbE3fd1bFe38a26a31C085c0b805198912E2", // - not yet launched
-  [sepolia.id]: "0xaD093D92592Ae4E5375304c3Fdd448cc2A5c87cc", // - OLD:0xc739F8B19b21e677D482e26265942E970442d5E5
+  [sepolia.id]: "0x539ED2B88ba7c8fe1d152b96D33E334Ee2950578", // - OLD:0xc739F8B19b21e677D482e26265942E970442d5E5
   [mainnet.id]: "0x73b62ea73714c132E783BC0bA8318CCE7862c77a", // Original Mainnet address also not yet launched
 } as const;

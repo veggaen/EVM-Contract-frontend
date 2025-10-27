@@ -8,6 +8,7 @@ import { CustomThemeProvider } from "../contexts/ThemeContext";
 import React from "react";
 import VantaBackground from "../components/VantaBackground";
 import { SpeedInsights } from "@vercel/speed-insights/next"
+import { Analytics } from "@vercel/analytics/next"
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {children}
                 <SpeedInsights />
+                <Analytics />
               </div>
             </motion.div>
             <footer className="relative z-10 text-center text-gray-400 py-4 border-t border-white/10 bg-black/30 backdrop-blur-xl">
