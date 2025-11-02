@@ -1,8 +1,8 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import React, { useEffect, useRef, useState } from 'react';
 import { FaCoins, FaEthereum, FaUsers, FaChartLine } from 'react-icons/fa';
+import Section from "./Section";
 
 interface ProjectStatsProps {
   totalMinted: string;
@@ -84,19 +84,7 @@ export default function ProjectStats({
   participantsFlash = false,
 }: ProjectStatsProps) {
   return (
-    <div role="region" aria-label="Project Statistics" className="w-full">
-      <div className="glass w-full p-4 sm:p-6 lg:p-8 ring-white/10 space-y-8">
-        <motion.div
-          className="pt-6 mt-6 border-white/10"
-          initial={{ opacity: 0, x: 50 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <h2 className="text-2xl font-bold mb-4 flex items-center" style={{ color: 'var(--primary)' }}>
-            <FaChartLine className="mr-2" style={{ color: 'var(--primary)' }} /> 
-            Project Stats
-          </h2>
-          
+    <Section ariaLabel="Project Statistics" title="Project Stats" icon={<FaChartLine className="mr-2" style={{ color: 'var(--primary)' }} /> }>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
             <StatCard
               icon={<FaCoins style={{ color: 'var(--primary)' }} />}
@@ -165,8 +153,6 @@ export default function ProjectStats({
               className="text-white"
             />
           </div>
-        </motion.div>
-      </div>
-    </div>
+    </Section>
   );
 }

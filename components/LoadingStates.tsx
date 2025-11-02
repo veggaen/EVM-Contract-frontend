@@ -51,10 +51,7 @@ export function PhaseParticipantsLoading({ phase, className = '' }: PhasePartici
       </h3>
       <div className="flex flex-col items-center justify-center py-8">
         <LoadingSpinner size="lg" className="mb-3" />
-        <LoadingText text="Loading phase participants..." showSpinner={false} />
-        <p className="text-xs text-gray-500 mt-2 text-center">
-          Fetching contributor data from blockchain...
-        </p>
+        <LoadingText text="Loading..." showSpinner={false} />
       </div>
     </div>
   );
@@ -72,10 +69,7 @@ export function MintTokensLoading({ className = '' }: MintTokensLoadingProps) {
       </h3>
       <div className="flex flex-col items-center justify-center py-8">
         <LoadingSpinner size="lg" className="mb-3" />
-        <LoadingText text="Checking mintable phases..." showSpinner={false} />
-        <p className="text-xs text-gray-500 mt-2 text-center">
-          Analyzing your contributions and available tokens...
-        </p>
+        <LoadingText text="Loading..." showSpinner={false} />
       </div>
     </div>
   );
@@ -105,13 +99,8 @@ export function ChartLoading({ title, className = '' }: ChartLoadingProps) {
         {title}
       </h3>
       <div className="flex flex-col items-center justify-center py-12">
-        <div className="relative">
-          <div className="w-24 h-24 rounded-full border-4 border-gray-300 border-t-blue-600 animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-16 h-16 rounded-full bg-gray-100" />
-          </div>
-        </div>
-        <LoadingText text="Loading chart data..." showSpinner={false} className="mt-4" />
+        <LoadingSpinner size="lg" />
+        <LoadingText text="Loading..." showSpinner={false} className="mt-4" />
       </div>
     </div>
   );

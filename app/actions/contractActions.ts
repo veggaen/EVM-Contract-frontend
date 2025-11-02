@@ -29,16 +29,16 @@ export interface ServerContractData {
 function getRpcUrl(chainId: number): string {
   switch (chainId) {
     case 11155111: // Sepolia
-      return process.env.INFURA 
-        ? `https://sepolia.infura.io/v3/${process.env.INFURA}` 
+      return process.env.INFURA
+        ? `https://sepolia.infura.io/v3/${process.env.INFURA}`
         : 'https://rpc.sepolia.org';
     case 17000: // Holesky
-      return process.env.INFURAHOLESKY 
-        ? `https://holesky.infura.io/v3/${process.env.INFURAHOLESKY}` 
+      return process.env.INFURAHOLESKY
+        ? `https://holesky.infura.io/v3/${process.env.INFURAHOLESKY}`
         : 'https://rpc.holesky.ethpandaops.io';
     case 1: // Mainnet
-      return process.env.INFURA 
-        ? `https://mainnet.infura.io/v3/${process.env.INFURA}` 
+      return process.env.INFURA
+        ? `https://mainnet.infura.io/v3/${process.env.INFURA}`
         : 'https://eth.llamarpc.com';
     default:
       return 'https://rpc.sepolia.org';
@@ -84,14 +84,14 @@ export async function fetchBasicContractData(chainId: number = 11155111): Promis
       contract.totalContributions(index).catch(() => BigInt(0))
     );
     const phaseContributionsResults = await Promise.all(phaseContributionsPromises);
-    
-    const phaseContributions = phaseContributionsResults.map(result => 
+
+    const phaseContributions = phaseContributionsResults.map(result =>
       ethers.formatEther(result)
     );
-    
+
     const totalContributions = phaseContributionsResults
       .reduce((acc, contrib) => acc + contrib, BigInt(0));
-    
+
     const currentPhaseContributions = phaseContributionsResults[currentPhase] || BigInt(0);
 
     // Calculate historical phase progress
@@ -104,7 +104,7 @@ export async function fetchBasicContractData(chainId: number = 11155111): Promis
           totalBlocks: 100,
         };
       }
-      
+
       return {
         phase: index,
         progress: 100,
@@ -140,43 +140,30 @@ export async function fetchBasicContractData(chainId: number = 11155111): Promis
   }
 }
 
-// Server action to fetch user-specific data
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// Server action to fetch user-specific data (lightweight stub; client computes details)
 export async function fetchUserContractData(
-  userAddress: string, 
-  chainId: number = 11155111
+  _userAddress: string,
+  _chainId?: number
 ): Promise<{
   userContributions: string[];
   mintablePhases: number[];
   totalUserContributions: string;
 } | null> {
   try {
-    const rpcUrl = getRpcUrl(chainId);
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-
-    // Fetch user-specific data in parallel
-    const [userContributionsResult, mintablePhasesResult] = await Promise.all([
-      contract.getUserContributions(userAddress).catch(() => []),
-      contract.getUserMintablePhases(userAddress).catch(() => []),
-    ]);
-
-    const userContributions = userContributionsResult.map((contrib: bigint) => 
-      ethers.formatEther(contrib)
-    );
-    
-    const totalUserContributions = userContributionsResult
-      .reduce((acc: bigint, contrib: bigint) => acc + contrib, BigInt(0));
-
+    // For now, return empty arrays to avoid heavy RPC usage server-side.
+    // The client page computes per-phase details efficiently and merges pending txs.
     return {
-      userContributions,
-      mintablePhases: mintablePhasesResult.map((phase: bigint) => Number(phase)),
-      totalUserContributions: ethers.formatEther(totalUserContributions),
+      userContributions: [],
+      mintablePhases: [],
+      totalUserContributions: '0',
     };
-
   } catch (error) {
     console.error('Failed to fetch user contract data:', error);
     return null;
   }
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
 }
 
 // Server action to get network status
@@ -188,7 +175,7 @@ export async function getNetworkStatus(chainId: number): Promise<{
   try {
     const rpcUrl = getRpcUrl(chainId);
     const provider = new ethers.JsonRpcProvider(rpcUrl);
-    
+
     const [network, blockNumber] = await Promise.all([
       provider.getNetwork(),
       provider.getBlockNumber(),

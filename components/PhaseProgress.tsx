@@ -40,6 +40,17 @@ interface PhaseProgressProps {
   participantsFlash?: boolean;
   phaseStartBlock?: number;
   phaseEndBlock?: number;
+  // Time-based (MMM_02)
+  isTimeBased?: boolean;
+  launchTimestamp?: number;
+  scheduleEndTs?: number;
+  currentPhaseStartTs?: number;
+  currentPhaseEndTs?: number;
+  phaseCount?: number;
+  nextPhase?: number | null;
+  nextPhaseStartTs?: number;
+  nextPhaseEndTs?: number;
+  nextPhaseAllocation?: bigint;
 }
 
 export default function PhaseProgress({
@@ -64,6 +75,17 @@ export default function PhaseProgress({
   participantsFlash = false,
   phaseStartBlock,
   phaseEndBlock,
+  // time-based
+  isTimeBased = false,
+  launchTimestamp,
+  scheduleEndTs,
+  currentPhaseStartTs,
+  currentPhaseEndTs,
+  phaseCount,
+  nextPhase,
+  nextPhaseStartTs,
+  nextPhaseEndTs,
+  nextPhaseAllocation,
 }: PhaseProgressProps) {
   if (isLoading) {
     return (
@@ -78,8 +100,7 @@ export default function PhaseProgress({
         </h2>
         <div className="glass p-6 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3"></div>
-          <p className="text-sm" style={{ color: 'var(--muted)' }}>Fetching current phase data...</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Please wait for accurate information</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading...</p>
         </div>
       </motion.div>
     );
@@ -98,13 +119,19 @@ export default function PhaseProgress({
 
       {isLaunchComplete ? (
         <p className="text-gray-300">
-          The token launch has concluded after {blocksSinceLaunch} blocks.
+          {isTimeBased && launchTimestamp && scheduleEndTs
+            ? <>The token launch has concluded after {Math.max(0, Math.floor((scheduleEndTs - launchTimestamp) / 86400))} days.</>
+            : <>The token launch has concluded after {blocksSinceLaunch} blocks.</>
+          }
         </p>
       ) : (
         <div className="space-y-4">
           <div>
             <p className="text-sm text-gray-300">
-              Total Progress: {Math.round(totalProgress)}% ({blocksSinceLaunch} / {totalBlocks} blocks)
+              {isTimeBased && launchTimestamp && scheduleEndTs && phaseCount
+                ? <>Total Progress: {Math.round(totalProgress)}% (Phase {currentPhase} / {phaseCount})</>
+                : <>Total Progress: {Math.round(totalProgress)}% ({blocksSinceLaunch} / {totalBlocks} blocks)</>
+              }
             </p>
             <div className={`bg-gray-700 h-3 rounded-full overflow-hidden progress-shine ${totalProgFlash ? 'shine-active' : ''}`}>
               <motion.div
@@ -175,16 +202,81 @@ export default function PhaseProgress({
               </div>
             </div>
 
-            {phaseStartBlock && phaseEndBlock && (
+            {(isTimeBased && currentPhaseStartTs && currentPhaseEndTs) ? (
               <div className="rounded-xl border border-white/10 bg-gradient-to-br from-fuchsia-500/10 to-indigo-500/10 p-3 lg:col-span-3">
                 <div className="flex items-center gap-2 text-xs text-gray-300">
                   <FaStream className="text-fuchsia-300" />
-                  <span>Blocks</span>
+                  <span>Time</span>
                 </div>
-                <div className="font-mono text-white">{phaseStartBlock} &rarr; {phaseEndBlock}</div>
+                <div className="font-mono text-white">{new Date(currentPhaseStartTs * 1000).toLocaleString()} &rarr; {new Date(currentPhaseEndTs * 1000).toLocaleString()}</div>
               </div>
+            ) : (
+              phaseStartBlock && phaseEndBlock ? (
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-fuchsia-500/10 to-indigo-500/10 p-3 lg:col-span-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-300">
+                    <FaStream className="text-fuchsia-300" />
+                    <span>Blocks</span>
+                  </div>
+                  <div className="font-mono text-white">{phaseStartBlock} &rarr; {phaseEndBlock}</div>
+                </div>
+              ) : null
             )}
           </div>
+          
+          {/* Next Phase Info */}
+          {isTimeBased && nextPhase !== null && nextPhase !== undefined && nextPhaseStartTs && nextPhaseEndTs && (
+            <div className="rounded-xl border border-white/10 bg-gradient-to-br from-green-500/10 to-teal-500/10 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-200 mb-2">
+                <FaStream className="text-green-300" />
+                <span>Next Phase: Phase {nextPhase}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <div className="text-gray-400">Starts</div>
+                  <div className="font-mono text-white">{nextPhaseStartTs ? new Date(nextPhaseStartTs * 1000).toLocaleString() : '—'}</div>
+                  <div className="text-gray-400 mt-1">
+                    {nextPhaseStartTs ? (() => {
+                      const now = Math.floor(Date.now() / 1000);
+                      const secsLeft = nextPhaseStartTs - now;
+                      if (secsLeft <= 0) return 'Starting now';
+                      const mins = Math.floor(secsLeft / 60);
+                      const hours = Math.floor(mins / 60);
+                      const days = Math.floor(hours / 24);
+                      if (days > 0) return `in ${days}d ${hours % 24}h`;
+                      if (hours > 0) return `in ${hours}h ${mins % 60}m`;
+                      return `in ${mins}m`;
+                    })() : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Duration</div>
+                  <div className="font-mono text-white">
+                    {nextPhaseStartTs && nextPhaseEndTs ? (() => {
+                      const duration = nextPhaseEndTs - nextPhaseStartTs;
+                      const hours = Math.floor(duration / 3600);
+                      const days = Math.floor(hours / 24);
+                      if (days > 0) return `${days}d ${hours % 24}h`;
+                      if (hours > 0) return `${hours}h`;
+                      return `${Math.floor(duration / 60)}m`;
+                    })() : '—'}
+                  </div>
+                  {nextPhaseAllocation && (
+                    <>
+                      <div className="text-gray-400 mt-1">Allocation</div>
+                      <div className="font-mono text-white">
+                        {(() => {
+                          const alloc = Number(nextPhaseAllocation) / 1e18;
+                          if (alloc >= 1000000) return `${(alloc / 1000000).toFixed(2)}M`;
+                          if (alloc >= 1000) return `${(alloc / 1000).toFixed(2)}K`;
+                          return alloc.toFixed(2);
+                        })()} MMM
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </motion.div>

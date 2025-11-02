@@ -22,20 +22,25 @@ export const PHASES = [
 ];
 
 export const CONTRACT_ABI = [
-  "function getCurrentPhase() view returns (uint256)",
+  // ERC20
   "function totalSupply() view returns (uint256)",
-  "function launchBlock() view returns (uint256)",
   "function name() view returns (string)",
   "function symbol() view returns (string)",
+  // Phase functions
+  "function getCurrentPhase() view returns (uint256)",
+  "function launchBlock() view returns (uint256)",
+  "function LAUNCH_TIMESTAMP() view returns (uint256)",
+  "function PHASE_COUNT() view returns (uint256)",
+  "function PHASE_DURATION() view returns (uint256)",
+  "function phaseStartTs(uint256 phase) view returns (uint256)",
+  "function phaseEndTs(uint256 phase) view returns (uint256)",
+  "function phaseAllocation(uint256 phase) view returns (uint256)",
   "function totalContributions(uint256 phase) view returns (uint256)",
   "function contributions(uint256 phase, address user) view returns (uint256)",
-  "function getUserContributions(address user) view returns (uint256[])",
-  "function getUserMintablePhases(address user) view returns (uint256[])",
   "function hasMinted(uint256 phase, address user) view returns (bool)",
   "function getPhaseContributors(uint256 phase) view returns (address[])",
-  "function phases(uint256) view returns (uint256, uint256, uint256)",
-  "function withdraw()",
   "function getEligibleTokens(uint256 phase, address user) view returns (uint256)",
   "function mintUserShare(uint256 phase)",
-  "function mintMultipleUserShares()",
+  // Admin
+  "function withdraw()",
 ];

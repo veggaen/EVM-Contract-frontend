@@ -17,7 +17,15 @@ export const config = createConfig({
 
 // Define contract addresses per chain
 export const CONTRACT_ADDRESSES = {
-  [holesky.id]: "0xA604fbE3fd1bFe38a26a31C085c0b805198912E2", // - not yet launched
-  [sepolia.id]: "0x539ED2B88ba7c8fe1d152b96D33E334Ee2950578", // - OLD:0xc739F8B19b21e677D482e26265942E970442d5E5
-  [mainnet.id]: "0x73b62ea73714c132E783BC0bA8318CCE7862c77a", // Original Mainnet address also not yet launched
+  [holesky.id]: "0xA604fbE3fd1bFe38a26a31C085c0b805198912E2", // placeholder
+  [sepolia.id]: "0x2d3740543d12ac954396A39a9B1d870a7ABb484A", // MrManManUnified (Token + Staking) - DEV MODE DEPLOYMENT
+  [mainnet.id]: "0x73b62ea73714c132E783BC0bA8318CCE7862c77a", // placeholder
+} as const;
+
+// Staking contract addresses per chain
+// Note: MMM_Unified includes staking, so we use the same address
+export const STAKING_ADDRESSES = {
+  [holesky.id]: "0x0000000000000000000000000000000000000000", // placeholder
+  [sepolia.id]: "0x2d3740543d12ac954396A39a9B1d870a7ABb484A", // Same as MMM_Unified (includes staking) - DEV MODE DEPLOYMENT
+  [mainnet.id]: "0x0000000000000000000000000000000000000000", // placeholder
 } as const;
