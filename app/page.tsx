@@ -23,7 +23,7 @@ import { motion } from "framer-motion";
 import ProjectStats from "../components/ProjectStats";
 import PhaseProgress from "../components/PhaseProgress";
 import { useOptimizedContractData } from "../hooks/useOptimizedContractData";
-// import { useUserContractData } from "../hooks/useOptimizedContractData"; // TODO: Integrate user data
+import { useUserContractData } from "../hooks/useUserContractData";
 
 // Import loading and responsive components
 import {
@@ -586,11 +586,15 @@ function Dashboard() {
 
   // Use optimized contract data fetching with Wagmi
   const optimizedData = useOptimizedContractData(activeNetwork);
-  // const userData = useUserContractData(account, activeNetwork); // TODO: Integrate user data
+  // Use optimized user-specific data fetching (batches all phase calls in parallel)
+  const userData = useUserContractData(activeNetwork, account as `0x${string}` | undefined, optimizedData);
 
   // Enhanced validation that prioritizes optimized data
   // Use a ref to prevent flickering during refetches - be more aggressive about persistence
   const hasOptimizedDataRef = useRef<boolean>(false);
+  const hasStableDataRef = useRef<boolean>(false);
+  const hasInitialUserFetchRef = useRef<boolean>(false);
+  
   const hasOptimizedData = useMemo(() => {
     const result = optimizedData.isValidated && !optimizedData.isLoading;
     // If we have valid data, store it permanently
@@ -615,8 +619,79 @@ function Dashboard() {
     // Default: keep previous value
     return hasOptimizedDataRef.current;
   }, [optimizedData.isValidated, optimizedData.isLoading, optimizedData.hasBasicData]);
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
+  // Removed hydrated state - not needed anymore
+
+
+  // Use calculatedCurrentPhase from optimized hook (consistent calculation)
+  const calculatedCurrentPhase = optimizedData.calculatedCurrentPhase;
+  // PROFESSIONAL APPROACH: Single consolidated data update (like older stable versions)
+  // One effect handles all data synchronization to prevent competing updates
+  const dataUpdateRef = useRef({ lastUpdate: 0, initialized: false });
+
+  useEffect(() => {
+    const now = Date.now();
+    // Prevent rapid updates (max once per 2 seconds)
+    if (now - dataUpdateRef.current.lastUpdate < 2000) return;
+
+    // Only update when we have stable data sources
+    if (!hasOptimizedData || !optimizedData.hasBasicData || optimizedData.isLoading) return;
+
+    // For connected users, wait for user data
+    if (isConnected && (!userData || userData.isLoading)) return;
+
+    dataUpdateRef.current.lastUpdate = now;
+
+    setContractData(prev => {
+      const updated = {
+        ...prev,
+
+        // GLOBAL CONTRACT DATA (from optimized hook)
+        currentPhase: calculatedCurrentPhase,
+        totalMinted: optimizedData.totalMinted || prev.totalMinted,
+        totalContributions: optimizedData.totalContributions || prev.totalContributions,
+        totalTokensThisPhase: optimizedData.totalTokensThisPhase || prev.totalTokensThisPhase,
+        currentPhaseContributions: optimizedData.currentPhaseContributions || prev.currentPhaseContributions,
+        isLaunchComplete: optimizedData.isLaunchComplete ?? prev.isLaunchComplete,
+        blockNumber: optimizedData.blockNumber || prev.blockNumber,
+        launchBlock: optimizedData.launchBlock || prev.launchBlock,
+        tokenName: optimizedData.tokenName || prev.tokenName,
+        tokenSymbol: optimizedData.tokenSymbol || prev.tokenSymbol,
+        participantsCount: optimizedData.participantsCount || prev.participantsCount,
+        totalParticipantsData: optimizedData.totalParticipantsData?.length > 0
+          ? optimizedData.totalParticipantsData
+          : prev.totalParticipantsData,
+        launchTimestamp: optimizedData.launchTimestamp || prev.launchTimestamp,
+        phaseCount: optimizedData.phaseCount || prev.phaseCount,
+        phaseDuration: optimizedData.phaseDuration || prev.phaseDuration,
+        currentPhaseStartTs: optimizedData.currentPhaseStartTs || prev.currentPhaseStartTs,
+        currentPhaseEndTs: optimizedData.currentPhaseEndTs || prev.currentPhaseEndTs,
+        scheduleEndTs: optimizedData.scheduleEndTs || prev.scheduleEndTs,
+        isTimeBased: optimizedData.isTimeBased ?? prev.isTimeBased,
+
+        // USER DATA (only when connected and data available)
+        ...(isConnected && userData && !userData.isLoading ? {
+          phaseContributions: userData.phaseContributions.length > 0 ? userData.phaseContributions : prev.phaseContributions,
+          mintablePhases: userData.mintablePhases.length > 0 ? userData.mintablePhases : prev.mintablePhases,
+          mintedPhases: userData.mintedPhases.length > 0 ? userData.mintedPhases : prev.mintedPhases,
+          phaseEligibleTokens: Object.keys(userData.phaseEligibleTokens).length > 0 ? userData.phaseEligibleTokens : prev.phaseEligibleTokens,
+          userCurrentPhaseContributions: userData.userCurrentPhaseContributions || prev.userCurrentPhaseContributions,
+        } : {}),
+
+        // PRESERVE calculated fields set by fetchUserContractData
+        // (estimatedReward, historicalData, phaseParticipants, etc.)
+      };
+
+      return updated;
+    });
+
+    dataUpdateRef.current.initialized = true;
+  }, [
+    isConnected,
+    hasOptimizedData,
+    optimizedData,
+    userData,
+    calculatedCurrentPhase
+  ]);
 
 
   useEffect(() => {
@@ -678,6 +753,14 @@ function Dashboard() {
     providerChainId: 0,
     tokenName: "",
     tokenSymbol: "",
+    // Time-based properties (for MMM_Unified contract)
+    isTimeBased: false,
+    launchTimestamp: undefined as number | undefined,
+    phaseCount: undefined as number | undefined,
+    phaseDuration: undefined as number | undefined,
+    currentPhaseStartTs: undefined as number | undefined,
+    currentPhaseEndTs: undefined as number | undefined,
+    scheduleEndTs: undefined as number | undefined,
   });
   const [gracePeriodSec, setGracePeriodSec] = useState<number>(30 * 86400);
   const [userStakes, setUserStakes] = useState<UserStakeView[]>([]);
@@ -769,6 +852,13 @@ function Dashboard() {
 
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
   const [hasInitialUserFetch, setHasInitialUserFetch] = useState(false);
+  
+  // CRITICAL: Once user data is fetched, persist it via ref to prevent flickering
+  useEffect(() => {
+    if (hasInitialUserFetch) {
+      hasInitialUserFetchRef.current = true;
+    }
+  }, [hasInitialUserFetch]);
 
   const [hasPublicLight, setHasPublicLight] = useState(false);
   const [hasPublicDetails, setHasPublicDetails] = useState(false);
@@ -836,51 +926,25 @@ function Dashboard() {
   const totalParticipantsFlash = useFlashOnChange(contractData.totalParticipants);
 
   // Stable data logic - use optimized data when available, fallback to old data
-  // Add debouncing to prevent rapid flickering
+  // CRITICAL: Once we have stable data, NEVER flip back to false during refetches
   const hasStableData = useMemo(() => {
-    return hasOptimizedData && optimizedData.hasBasicData && optimizedData.currentPhase >= 0;
+    // If we've had stable data before, keep it forever (even during refetches)
+    if (hasStableDataRef.current) {
+      return true;
+    }
+    // Check if we have valid data now
+    const hasValidData = hasOptimizedData && optimizedData.hasBasicData && typeof optimizedData.currentPhase === 'number';
+    if (hasValidData) {
+      hasStableDataRef.current = true; // Set ref to persist forever
+      return true;
+    }
+    return false;
   }, [hasOptimizedData, optimizedData.hasBasicData, optimizedData.currentPhase]);
 
-  // CRITICAL: When optimized data is available, completely override contractData to prevent mixed states
-  const stableContractData = hasStableData ? {
-    currentPhase: optimizedData.currentPhase,
-    totalMinted: optimizedData.totalMinted,
-    totalContributions: optimizedData.totalContributions,
-    participantsCount: optimizedData.participantsCount || contractData.participantsCount,
-    totalParticipantsData: (optimizedData.totalParticipantsData && optimizedData.totalParticipantsData.length > 0)
-      ? optimizedData.totalParticipantsData
-      : contractData.totalParticipantsData,
-    totalParticipants: ((optimizedData.totalParticipantsData && optimizedData.totalParticipantsData.length > 0)
-      ? optimizedData.totalParticipantsData.length
-      : contractData.totalParticipantsData.length),
-    totalTokensThisPhase: optimizedData.totalTokensThisPhase,
-    currentPhaseContributions: optimizedData.currentPhaseContributions,
-    isLaunchComplete: optimizedData.isLaunchComplete,
-    blockNumber: optimizedData.blockNumber,
-    launchBlock: optimizedData.launchBlock,
-
-    tokenName: optimizedData.tokenName,
-    tokenSymbol: optimizedData.tokenSymbol,
-    // Time-based schedule (MMM_02)
-    isTimeBased: optimizedData.isTimeBased,
-    launchTimestamp: optimizedData.launchTimestamp,
-    phaseCount: optimizedData.phaseCount,
-    phaseDuration: optimizedData.phaseDuration,
-    currentPhaseStartTs: optimizedData.currentPhaseStartTs,
-    currentPhaseEndTs: optimizedData.currentPhaseEndTs,
-    scheduleEndTs: optimizedData.scheduleEndTs,
-    // Preserve user-specific data from contractData
-    userCurrentPhaseContributions: contractData.userCurrentPhaseContributions,
-    estimatedReward: contractData.estimatedReward,
-    pendingPhaseParticipants: contractData.pendingPhaseParticipants,
-    phaseContributions: contractData.phaseContributions,
-    phaseParticipants: contractData.phaseParticipants,
-    historicalData: contractData.historicalData,
-    historicalPhaseParticipants: contractData.historicalPhaseParticipants,
-    historicalPhaseProgress: contractData.historicalPhaseProgress,
-    codeSize: contractData.codeSize,
-    providerChainId: contractData.providerChainId,
-  } : contractData;
+  // REMOVED: Complex multiple effects consolidated into single effect above
+  
+  // Simple stable contract data - just use contractData directly (like old version)
+  const stableContractData = contractData;
 
 
   // Holders leaderboard (beta)
@@ -935,12 +999,9 @@ function Dashboard() {
     }
   }, [publicProvider, activeNetwork, stableContractData.launchBlock]);
 
-  // Use a stable reference to prevent flickering: use optimizedData.isTimeBased directly
-  // The hook now handles persistence internally
-  const isTimeBased = useMemo(() => {
-    // Trust the hook's stable value
-    return !!optimizedData.isTimeBased;
-  }, [optimizedData.isTimeBased]);
+  // SIMPLIFIED: Use contractData.isTimeBased directly (like old version)
+  // The useEffect above ensures it's set and persisted
+  const isTimeBased = contractData.isTimeBased ?? false;
   const minContributionEth = optimizedData.minContributionEth || MINIMUM_ETH_FALLBACK;
 
   const nowTs = Math.floor(Date.now() / 1000);
@@ -952,34 +1013,56 @@ function Dashboard() {
   let blocksPassedInPhase = 0;
   let launchPhaseEndProgress = 0;
 
-  if (isTimeBased && optimizedData.launchTimestamp) {
-    const launchTs = optimizedData.launchTimestamp || 0;
-    const scheduleEndTs = optimizedData.scheduleEndTs || (launchTs && optimizedData.phaseCount && optimizedData.phaseDuration
-      ? launchTs + optimizedData.phaseCount * optimizedData.phaseDuration
+  // STABILIZED: Use contractData values first (more stable), fallback to optimizedData
+  const launchTs = contractData.launchTimestamp || optimizedData.launchTimestamp || 0;
+  const phaseCount = contractData.phaseCount || optimizedData.phaseCount;
+  const phaseDuration = contractData.phaseDuration || optimizedData.phaseDuration;
+  
+  if (isTimeBased && launchTs) {
+    const scheduleEndTs = contractData.scheduleEndTs || optimizedData.scheduleEndTs || (launchTs && phaseCount && phaseDuration
+      ? launchTs + phaseCount * phaseDuration
       : 0);
     if (launchTs > 0 && scheduleEndTs > launchTs) {
       const elapsed = Math.max(0, nowTs - launchTs);
       blocksSinceLaunch = elapsed;
     }
-    const startTs = optimizedData.currentPhaseStartTs || 0;
-    const endTs = optimizedData.currentPhaseEndTs || 0;
-    // Ensure we have valid phase times and endTs > startTs
-    if (startTs > 0 && endTs > startTs && endTs > nowTs) {
-      const elapsedIn = Math.max(0, Math.min(nowTs - startTs, endTs - startTs));
-      const totalSecsInPhase = endTs - startTs;
-      if (totalSecsInPhase > 0) {
-        launchPhaseEndProgress = Math.min((elapsedIn / totalSecsInPhase) * 100, 100);
-      } else {
-        launchPhaseEndProgress = 0;
+    const startTs = contractData.currentPhaseStartTs || optimizedData.currentPhaseStartTs || 0;
+    let endTs = contractData.currentPhaseEndTs || optimizedData.currentPhaseEndTs || 0;
+    
+    // Fix for Phase 0: if we're in Phase 0 and endTs seems wrong, recalculate it
+    if (calculatedCurrentPhase === 0 && launchTs > 0 && phaseCount && phaseCount > 0) {
+      const phase0StartTs = contractData.currentPhaseStartTs || optimizedData.currentPhaseStartTs || launchTs;
+      const phase0EndTs = contractData.currentPhaseEndTs || optimizedData.currentPhaseEndTs;
+      const phase0Duration = phase0StartTs && phase0EndTs
+        ? (phase0EndTs - phase0StartTs)
+        : 900; // Default 15 min
+      const expectedEndTs = launchTs + phase0Duration;
+      // If endTs is 0 or seems incorrect (more than 1 second off), use calculated value
+      if (endTs === 0 || Math.abs(endTs - expectedEndTs) > 1) {
+        endTs = expectedEndTs;
       }
-      blocksInPhase = Math.max(1, Math.round(totalSecsInPhase / 86400)); // Convert to days for display
-      blocksPassedInPhase = Math.floor(elapsedIn / 86400); // Convert to days for display
-    } else if (startTs > 0 && endTs > startTs && nowTs >= endTs) {
-      // Phase has ended
-      launchPhaseEndProgress = 100;
-      const totalSecsInPhase = endTs - startTs;
-      blocksInPhase = Math.max(1, Math.round(totalSecsInPhase / 86400));
-      blocksPassedInPhase = Math.floor(totalSecsInPhase / 86400);
+    }
+    
+    // Ensure we have valid phase times and endTs > startTs
+    if (startTs > 0 && endTs > startTs) {
+      if (endTs > nowTs) {
+        // Phase is in progress
+        const elapsedIn = Math.max(0, Math.min(nowTs - startTs, endTs - startTs));
+        const totalSecsInPhase = endTs - startTs;
+        if (totalSecsInPhase > 0) {
+          launchPhaseEndProgress = Math.min((elapsedIn / totalSecsInPhase) * 100, 100);
+        } else {
+          launchPhaseEndProgress = 0;
+        }
+        blocksInPhase = Math.max(1, Math.round(totalSecsInPhase / 86400)); // Convert to days for display
+        blocksPassedInPhase = Math.floor(elapsedIn / 86400); // Convert to days for display
+      } else {
+        // Phase has ended
+        launchPhaseEndProgress = 100;
+        const totalSecsInPhase = endTs - startTs;
+        blocksInPhase = Math.max(1, Math.round(totalSecsInPhase / 86400));
+        blocksPassedInPhase = Math.floor(totalSecsInPhase / 86400);
+      }
     } else {
       // Phase data not loaded yet - set defaults
       launchPhaseEndProgress = 0;
@@ -1005,21 +1088,36 @@ function Dashboard() {
   // Calculate total progress based on PHASE COUNT, not time
   // For Phase X out of Y, progress should be approximately X/Y * 100%
   const currentPhaseNum = stableContractData.currentPhase || 0;
-  const totalPhases = optimizedData.phaseCount || PHASES.length;
+  // Use phaseCount from contract if available, otherwise fallback to PHASES.length only for legacy contracts
+  // If phaseCount is undefined but we're using a known contract address, check if it's the 100-phase contract
+  const contractAddress = CONTRACT_ADDRESSES[activeNetwork as keyof typeof CONTRACT_ADDRESSES];
+  const is100PhaseContract = contractAddress === "0xD2220AEf5Bf9c185C3393AF43Bf8d20b4EdC97Aa";
+  const totalPhases = optimizedData.phaseCount || (is100PhaseContract ? 100 : PHASES.length);
   const totalProgressBasedOnPhases = totalPhases > 0 ? Math.min((currentPhaseNum / totalPhases) * 100, 100) : 0;
   
   // Derived flashes after phase block math is available
-  // For time-based: calculate seconds left, convert to days for display
-  const blocksLeftNum = isTimeBased && optimizedData.currentPhaseEndTs && optimizedData.currentPhaseEndTs > 0
-    ? Math.max(0, Math.floor((optimizedData.currentPhaseEndTs - nowTs) / 86400)) // Days left
+  // STABILIZED: Use contractData values first (more stable), fallback to optimizedData
+  const endTsForCalc = contractData.currentPhaseEndTs || optimizedData.currentPhaseEndTs;
+  const blocksLeftNum = isTimeBased && endTsForCalc && endTsForCalc > 0
+    ? Math.max(0, Math.floor((endTsForCalc - nowTs) / 86400)) // Days left
     : Math.max(0, blocksInPhase - blocksPassedInPhase);
   const blocksLeftFlash = useFlashOnChange(blocksLeftNum);
-  // For display: show relative time for time-based, or number for block-based
-  const blocksLeftDisplay = isTimeBased && optimizedData.currentPhaseEndTs && optimizedData.currentPhaseEndTs > 0
-    ? formatRelative(optimizedData.currentPhaseEndTs)
-    : (isTimeBased && optimizedData.currentPhaseEndTs === 0 && optimizedData.launchTimestamp 
-      ? 'Loading...' // Show loading text when phase end time isn't fetched yet
-      : blocksLeftNum.toString());
+  // STABILIZED: Use contractData values instead of optimizedData to prevent flickering
+  // The contractData is updated less frequently, providing stable display values
+  const blocksLeftDisplay = useMemo(() => {
+    if (isTimeBased) {
+      // Use contractData values (more stable) instead of optimizedData (changes frequently)
+      const endTs = contractData.currentPhaseEndTs || optimizedData.currentPhaseEndTs;
+      if (endTs && endTs > 0) {
+        return formatRelative(endTs);
+      }
+      // During loading, return empty string (will show skeleton in UI)
+      if (!hasStableDataRef.current || !contractData.launchTimestamp) {
+        return '';
+      }
+    }
+    return blocksLeftNum.toString();
+  }, [isTimeBased, contractData.currentPhaseEndTs, contractData.launchTimestamp, blocksLeftNum, formatRelative, optimizedData.currentPhaseEndTs]);
   const containerFlash = estRewardFlash || shareFlash || blocksLeftFlash;
   const totalProgFlash = useFlashOnChange(Math.round(totalProgressBasedOnPhases));
   const phaseProgFlash = useFlashOnChange(Math.round(launchPhaseEndProgress));
@@ -1384,12 +1482,15 @@ function Dashboard() {
         // Do not touch user-only fields when connected to avoid flicker
         ...(isConnected ? {} : { userCurrentPhaseContributions: "0", pendingPhaseParticipants: [] }),
         totalTokensThisPhase: optimizedData.isTimeBased ? (prev.historicalPhaseTokens?.[phase] || prev.totalTokensThisPhase) : (PHASES[phase]?.amount || prev.totalTokensThisPhase || '0'),
-        // Participants pie: prefer user fetch when connected (includes pending)
-        ...(isConnected ? {} : { phaseParticipants: phaseParticipantsData }),
+        // Participants pie: do not overwrite with empty during refetch; keep last-good
+        phaseParticipants: phaseParticipantsData.length > 0 ? phaseParticipantsData : prev.phaseParticipants,
         totalParticipantsData: Array.from(allContributors.values()).filter(d => d.value > 0),
-        ...(isConnected ? {} : { historicalData: historical }),
-        historicalPhaseParticipants,
-        historicalPhaseProgress,
+        // Historical: only replace when we have non-empty values (avoid blinking)
+        ...(isConnected ? {} : (historical.length > 0 ? { historicalData: historical } : {})),
+        historicalPhaseParticipants: historicalPhaseParticipants.some(arr => (arr?.length || 0) > 0)
+          ? historicalPhaseParticipants
+          : (prev.historicalPhaseParticipants || historicalPhaseParticipants),
+        historicalPhaseProgress: historicalPhaseProgress.length > 0 ? historicalPhaseProgress : prev.historicalPhaseProgress,
         isLaunchComplete,
         codeSize,
       }));
@@ -1413,131 +1514,103 @@ function Dashboard() {
     }
   }, [activeNetwork, publicProvider, contractData.blockNumber, isConnected, hasPublicDetails, hasOptimizedData, optimizedData.isTimeBased, optimizedData.launchTimestamp, optimizedData.phaseDuration, optimizedData.phaseCount, optimizedData.scheduleEndTs]);
 
+  // Use optimized user data hook when available to eliminate waterfalls
+  // Only use manual fetch for things the hook doesn't cover (pending contributions, historical data)
   const fetchUserContractData = useCallback(async () => {
     if (!contract || !provider || !account || isFetchingUserRef.current) return;
-    isFetchingUserRef.current = true;
-    try {
-      const blockProvider = publicProvider ?? provider;
-      // Resolve network + block + code fast to populate diagnostics if public fetch hasn't yet
-      const net1 = await blockProvider.getNetwork().catch(() => ({ chainId: 0 } as unknown as { chainId: number | bigint }));
-      const providerChainId1 = Number((net1 as { chainId: number | bigint }).chainId ?? 0);
-      const block1 = Number(await blockProvider.getBlockNumber().catch(() => 0));
-      const contractAddressOnNet = (CONTRACT_ADDRESSES as unknown as Record<number, string>)[activeNetwork];
-      const code1 = contractAddressOnNet ? await blockProvider.getCode(contractAddressOnNet).catch(() => "0x") : "0x";
-      const codeSize1 = code1 && code1 !== "0x" ? Math.floor((code1.length - 2) / 2) : 0;
-
-      const launch = optimizedData.isTimeBased
-        ? 0
-        : await contract.launchBlock().then((v) => Number(v as number | bigint | string) || 0).catch(() => 0);
-      const phase = await contract.getCurrentPhase().then((v) => Number(v as number | bigint | string) || 0).catch(() => 0);
-      const minted = await contract.totalSupply().catch(() => 0n);
-      const nowSecB = Math.floor(Date.now() / 1000);
-      const isLaunchComplete = optimizedData.isTimeBased && (optimizedData.scheduleEndTs || 0) > 0
-        ? (nowSecB >= Number(optimizedData.scheduleEndTs))
-        : (launch > 0 && block1 >= launch + TOTAL_BLOCKS);
-
-      // Ensure diagnostics and light stats become visible
-      setContractData(prev => ({
-        ...prev,
-        providerChainId: providerChainId1,
-        blockNumber: Math.max(prev.blockNumber, block1),
-        launchBlock: launch,
-        codeSize: codeSize1 || prev.codeSize,
-      }));
-      setHasPublicLight(true);
-
-      const phaseCountForUser = (optimizedData.isTimeBased && optimizedData.phaseCount)
-        ? Number(optimizedData.phaseCount)
-        : PHASES.length;
-      const phaseAllocationsStr: string[] = optimizedData.isTimeBased
-        ? (await Promise.all(Array.from({ length: phaseCountForUser }, (_, i) => contract.phaseAllocation(i).catch(() => 0n)))).map(x => ethers.formatEther((x as bigint) || 0n))
-        : Array.from({ length: PHASES.length }, (_, i) => PHASES[i]?.amount || '0');
-
-      let aggregatedUserContrib = BigInt(0);
-      let aggregatedTotalContrib = BigInt(0);
-      const mintable: number[] = [];
-      const mintedPhases: number[] = [];
-      const phaseContributions = Array(phaseCountForUser).fill("0");
-      const phaseParticipantsData: PieData[] = [];
-      const historicalPhaseParticipants: PieData[][] = Array(phaseCountForUser).fill([]);
-      const historicalPhaseProgress: { phase: number; progress: number; blocksPassed: number; totalBlocks: number }[] = [];
-      const allContributors: Map<string, PieData> = new Map();
-      const historical: HistoricalData[] = [];
-      const historicalPhaseTokens: string[] = Array(phaseCountForUser).fill("0");
-
-      for (let i = 0; i < phaseCountForUser; i++) {
-        const [userContrib, totalContrib, hasMintedPhase] = await Promise.all([
-          contract.contributions(i, account).catch(() => 0n),
-          contract.totalContributions(i).catch(() => 0n),
-          contract.hasMinted(i, account).catch(() => false),
-        ]);
-        // Progress (time-based vs block-based)
-        let blocksInPhase: number;
-        let blocksPassed: number;
-        let progress: number;
-        if (optimizedData.isTimeBased && optimizedData.launchTimestamp && optimizedData.phaseDuration) {
-          // Compute from contract constants instead of calling per-phase getters (lighter on RPC)
-          const launchTs = Number(optimizedData.launchTimestamp || 0);
-          const dur = Number(optimizedData.phaseDuration || 0);
-          const phaseStartTs = launchTs + i * dur;
-          const phaseEndTs = launchTs + (i + 1) * dur;
-          const nowTs = Math.floor(Date.now() / 1000);
-          const secsInPhase = Math.max(1, phaseEndTs - phaseStartTs);
-          const secsPassed = Math.max(0, Math.min(nowTs - phaseStartTs, secsInPhase));
-          blocksInPhase = Math.max(1, Math.round(secsInPhase / 86400));
-          blocksPassed = Math.floor(secsPassed / 86400);
-          progress = (secsPassed / secsInPhase) * 100;
-        } else {
-          const phaseStart = launch + PHASES[i].start;
-          const phaseEnd = launch + PHASES[i].end;
-          blocksInPhase = phaseEnd - phaseStart;
-          blocksPassed = Math.min(Math.max(0, block1 - phaseStart), blocksInPhase);
-          progress = blocksInPhase > 0 ? (blocksPassed / blocksInPhase) * 100 : 0;
-        }
-
-        // Time-based gating (MMM_02): at any moment, phases with index < current phase are ended; current/future are not.
-        const usingTime = Boolean(optimizedData.isTimeBased && optimizedData.launchTimestamp && optimizedData.phaseDuration);
-        const ended = usingTime ? (i < phase) : (block1 > (launch + PHASES[i].end));
-
-        if (userContrib > 0 && ended && !hasMintedPhase) mintable.push(i);
-        if (userContrib > 0 && hasMintedPhase) mintedPhases.push(i);
-        aggregatedUserContrib += userContrib;
-        aggregatedTotalContrib += totalContrib;
-        phaseContributions[i] = ethers.formatEther(userContrib);
+    
+    // If we have optimized user data from the hook, use it instead of manual fetching
+    if (userData && !userData.isLoading && userData.phaseContributions.length > 0) {
+      isFetchingUserRef.current = true;
+      try {
+        const phase = optimizedData.currentPhase;
+        const phaseCountForUser = (optimizedData.isTimeBased && optimizedData.phaseCount)
+          ? Number(optimizedData.phaseCount)
+          : PHASES.length;
         
-        // Store phase allocation for historical data
-        historicalPhaseTokens[i] = phaseAllocationsStr[i] || '0';
-
-        // Limit heavy contributors fetch to current phase, and up to 3 phases when launch is complete
-        const shouldFetchContributors = (i === phase) || (isLaunchComplete && i < 3);
-        const phaseParticipants: PieData[] = [];
-        if (shouldFetchContributors) {
-          const contributors: string[] = await contract.getPhaseContributors(i).catch(() => [] as string[]);
-          // Cap per-phase addresses to avoid RPC overload
+        // Use data from optimized hook (already fetched in parallel)
+        const mintablePhases = userData.mintablePhases;
+        const mintedPhases = userData.mintedPhases;
+        const phaseContributions = userData.phaseContributions;
+        const phaseEligibleTokens = userData.phaseEligibleTokens;
+        const totalUserContributions = userData.totalUserContributions;
+        
+        // Still need to fetch some things manually (pending contributions, phase participants, etc.)
+        const blockProvider = publicProvider ?? provider;
+        const block1 = Number(await blockProvider.getBlockNumber().catch(() => 0));
+        const launch = optimizedData.isTimeBased ? 0 : await contract.launchBlock().then((v) => Number(v as number | bigint | string) || 0).catch(() => 0);
+        const nowSecB = Math.floor(Date.now() / 1000);
+        const isLaunchComplete = optimizedData.isTimeBased && (optimizedData.scheduleEndTs || 0) > 0
+          ? (nowSecB >= Number(optimizedData.scheduleEndTs))
+          : (launch > 0 && block1 >= launch + TOTAL_BLOCKS);
+        
+        // Batch fetch phase allocations and total contributions in parallel
+        const [phaseAllocationsResults, totalContributionsResults] = await Promise.all([
+          Promise.all(Array.from({ length: phaseCountForUser }, (_, i) => contract.phaseAllocation(i).catch(() => 0n))),
+          Promise.all(Array.from({ length: phaseCountForUser }, (_, i) => contract.totalContributions(i).catch(() => 0n))),
+        ]);
+        
+        const phaseAllocationsStr = phaseAllocationsResults.map(x => ethers.formatEther((x as bigint) || 0n));
+        // aggregatedTotalContrib removed - not needed in user fetch
+        
+        // Calculate historical data (progress, participants) - only for needed phases
+        const historicalPhaseParticipants: PieData[][] = Array(phaseCountForUser).fill([]);
+        const historicalPhaseProgress: { phase: number; progress: number; blocksPassed: number; totalBlocks: number }[] = [];
+        const historical: HistoricalData[] = [];
+        const historicalPhaseTokens: string[] = phaseAllocationsStr;
+        const phaseParticipantsData: PieData[] = [];
+        const allContributors: Map<string, PieData> = new Map();
+        
+        // Only fetch contributors for current phase and up to 3 completed phases
+        const phasesToFetchContributors = [phase].concat(
+          Array.from({ length: Math.min(3, phase) }, (_, i) => phase - 1 - i)
+        );
+        
+        // Batch fetch contributors for all needed phases in parallel
+        const contributorLists = await Promise.all(
+          phasesToFetchContributors.map(i => 
+            contract.getPhaseContributors(i).catch(() => [] as string[])
+          )
+        );
+        
+        // Process contributors in parallel batches
+        for (let idx = 0; idx < phasesToFetchContributors.length; idx++) {
+          const i = phasesToFetchContributors[idx];
+          const contributors = contributorLists[idx] || [];
           const MAX_PER_PHASE = 100;
           const contributorsSlice = contributors.slice(0, MAX_PER_PHASE);
-
-          contributorsSlice.forEach((addr: string) => {
-            if (!allContributors.has(addr)) {
-              allContributors.set(addr, { name: `${addr.slice(0, 6)}...`, value: 0, address: addr, tokens: 0 });
-            }
-          });
-
-          const contribValues = await Promise.all(contributorsSlice.map((addr: string) => contract.contributions(i, addr).catch(() => 0n)));
+          
+          if (contributorsSlice.length === 0) continue;
+          
+          // Batch fetch all contribution values in parallel
+          const contribValues = await Promise.all(
+            contributorsSlice.map((addr: string) => contract.contributions(i, addr).catch(() => 0n))
+          );
+          
+          const totalContrib = totalContributionsResults[i] as bigint || 0n;
           const totalPhaseContrib = parseFloat(ethers.formatEther(totalContrib));
-
-          contributorsSlice.forEach((addr: string, idx: number) => {
-            const contrib = contribValues[idx];
+          const phaseParticipants: PieData[] = [];
+          
+          contributorsSlice.forEach((addr: string, addrIdx: number) => {
+            const contrib = contribValues[addrIdx];
             if (contrib > BigInt(0)) {
               const userShare = parseFloat(ethers.formatEther(contrib));
-              const tokenShare =
-                totalPhaseContrib > 0 && (hasMintedPhase || ended)
-                  ? (userShare / totalPhaseContrib) * parseFloat(phaseAllocationsStr[i] || '0')
-                  : 0;
+              const hasMintedPhase = mintedPhases.includes(i);
+              const ended = optimizedData.isTimeBased 
+                ? (i < phase)
+                : (block1 > (launch + (PHASES[i]?.end || 0)));
+              
+              const tokenShare = totalPhaseContrib > 0 && (hasMintedPhase || ended)
+                ? (userShare / totalPhaseContrib) * parseFloat(phaseAllocationsStr[i] || '0')
+                : 0;
+              
+              if (!allContributors.has(addr)) {
+                allContributors.set(addr, { name: `${addr.slice(0, 6)}...`, value: 0, address: addr, tokens: 0 });
+              }
               const existing = allContributors.get(addr)!;
               existing.value += userShare;
               existing.tokens = (existing.tokens || 0) + tokenShare;
-
+              
               if (i === phase && !isLaunchComplete) {
                 const phaseTokenShare = totalPhaseContrib > 0 ? (userShare / totalPhaseContrib) * parseFloat(phaseAllocationsStr[i] || '0') : 0;
                 phaseParticipantsData.push({
@@ -1556,138 +1629,183 @@ function Dashboard() {
               }
             }
           });
+          
+          historicalPhaseParticipants[i] = phaseParticipants;
+          
+          // Calculate progress
+          let progress: number, blocksPassed: number, blocksInPhase: number;
+          if (optimizedData.isTimeBased && optimizedData.launchTimestamp && optimizedData.phaseDuration) {
+            const launchTs = Number(optimizedData.launchTimestamp || 0);
+            const dur = Number(optimizedData.phaseDuration || 0);
+            const phaseStartTs = launchTs + i * dur;
+            const phaseEndTs = launchTs + (i + 1) * dur;
+            const nowTs = Math.floor(Date.now() / 1000);
+            const secsInPhase = Math.max(1, phaseEndTs - phaseStartTs);
+            const secsPassed = Math.max(0, Math.min(nowTs - phaseStartTs, secsInPhase));
+            blocksInPhase = Math.max(1, Math.round(secsInPhase / 86400));
+            blocksPassed = Math.floor(secsPassed / 86400);
+            progress = (secsPassed / secsInPhase) * 100;
+          } else {
+            const phaseStart = launch + (PHASES[i]?.start || 0);
+            const phaseEnd = launch + (PHASES[i]?.end || 0);
+            blocksInPhase = phaseEnd - phaseStart;
+            blocksPassed = Math.min(Math.max(0, block1 - phaseStart), blocksInPhase);
+            progress = blocksInPhase > 0 ? (blocksPassed / blocksInPhase) * 100 : 0;
+          }
+          
+          historicalPhaseProgress.push({ phase: i, progress, blocksPassed, totalBlocks: blocksInPhase });
+          
+          const userContrib = parseFloat(phaseContributions[i] || '0');
+          // Preserve existing minted amount if phase was already minted and phaseEligibleTokens is now 0
+          const phaseStr = i.toString();
+          const existingEntry = contractData.historicalData.find(h => h.phase === phaseStr);
+          const existingMinted = existingEntry?.minted || 0;
+          const newMintedValue = mintedPhases.includes(i) && userContrib > 0 
+            ? parseFloat(phaseEligibleTokens[i] || '0')
+            : 0;
+          // Use new value if > 0, otherwise preserve existing (important for already-minted phases)
+          const mintedAmount = newMintedValue > 0 ? newMintedValue : (mintedPhases.includes(i) ? existingMinted : 0);
+          
+          historical.push({
+            phase: phaseStr,
+            contributions: userContrib,
+            minted: mintedAmount,
+          });
         }
-        historicalPhaseParticipants[i] = phaseParticipants;
-        historicalPhaseProgress.push({ phase: i, progress, blocksPassed, totalBlocks: blocksInPhase });
-
-        historical.push({
-          phase: i.toString(),
-          contributions: parseFloat(ethers.formatEther(userContrib)),
-          minted: hasMintedPhase && userContrib > 0 ? (parseFloat(ethers.formatEther(userContrib)) / parseFloat(ethers.formatEther(totalContrib))) * parseFloat(phaseAllocationsStr[i] || '0') : 0,
+        
+        // Handle pending contributions reconciliation (keep existing logic)
+        const storedPending = getPendingContributions(account);
+        let filteredPending = storedPending.filter((p) => p.value > 0);
+        
+        // Reconcile pending contributions
+        try {
+          const receipts = await Promise.all(
+            filteredPending.map((p) => (p.txHash ? provider.getTransactionReceipt(p.txHash).catch(() => null) : Promise.resolve(null)))
+          );
+          const now = Date.now();
+          const stillPending: PieData[] = [];
+          for (let i = 0; i < filteredPending.length; i++) {
+            const p = filteredPending[i];
+            const r = receipts[i];
+            if (!r) {
+              stillPending.push(p);
+            } else {
+              const pendingPhase = p.phase ?? phase;
+              try {
+                const userContribOnChain = await contract.contributions(pendingPhase, account).catch(() => 0n);
+                const pendingAmountWei = ethers.parseEther(p.value.toString());
+                if (userContribOnChain >= pendingAmountWei) {
+                  const confirmedAt = (p as PieData & { confirmedAt?: number }).confirmedAt || now;
+                  const timeSinceConfirmed = now - confirmedAt;
+                  if (timeSinceConfirmed < 30000) {
+                    stillPending.push({ ...p, isPending: false, confirmedAt } as PieData & { confirmedAt: number });
+                  }
+                } else {
+                  stillPending.push(p);
+                }
+              } catch {
+                stillPending.push(p);
+              }
+            }
+          }
+          if (stillPending.length !== filteredPending.length) {
+            filteredPending = stillPending;
+            setPendingContributions(account, filteredPending);
+          }
+        } catch (error) {
+          console.error('Error reconciling pending contributions:', error);
+        }
+        
+        // Calculate current phase estimates
+        const currentPhaseUserContrib = parseFloat(phaseContributions[phase] || '0');
+        const currentPhaseTotalContrib = parseFloat(ethers.formatEther(totalContributionsResults[phase] as bigint || 0n));
+        const totalTokensThisPhase = parseFloat(phaseAllocationsStr[phase] || '0');
+        const currentPhasePending = filteredPending.filter(p => (p.phase ?? phase) === phase);
+        const totalPendingContrib = currentPhasePending.reduce((sum, p) => sum + p.value, 0);
+        const totalPhaseContribWithPending = currentPhaseTotalContrib + totalPendingContrib;
+        const totalUserContrib = currentPhaseUserContrib + totalPendingContrib;
+        const updatedEstimatedReward = totalPhaseContribWithPending > 0
+          ? (totalUserContrib / totalPhaseContribWithPending) * totalTokensThisPhase
+          : 0;
+        
+        const updatedPhaseParticipants = phaseParticipantsData.map(p => {
+          if (p.address === account) {
+            return { ...p, value: totalUserContrib, tokens: updatedEstimatedReward };
+          }
+          return p;
         });
+        if (!updatedPhaseParticipants.some(p => p.address === account) && totalPendingContrib > 0) {
+          updatedPhaseParticipants.push({
+            name: `${account.slice(0, 6)}...`,
+            value: totalUserContrib,
+            address: account,
+            tokens: updatedEstimatedReward,
+            isPending: true,
+            phase,
+          });
+        }
+        
+        // CRITICAL: Only update user-specific fields, preserve global data from optimized hook
+        setContractData((prev) => ({
+          ...prev,
+          // DON'T overwrite currentPhase - use from optimized hook (more stable)
+          // currentPhase: isLaunchComplete ? phaseCountForUser - 1 : phase,
+          // DON'T overwrite totalMinted - use from optimized hook (more stable)
+          // totalMinted: optimizedData.totalMinted,
+          blockNumber: Math.max(prev.blockNumber, block1),
+          launchBlock: launch || prev.launchBlock,
+          // User-specific data ONLY
+          userContributions: totalUserContributions,
+          mintablePhases: mintablePhases.length > 0 ? mintablePhases : prev.mintablePhases,
+          mintedPhases: mintedPhases.length > 0 ? mintedPhases : prev.mintedPhases,
+          phaseEligibleTokens: Object.keys(phaseEligibleTokens).length > 0 ? phaseEligibleTokens : prev.phaseEligibleTokens,
+          estimatedReward: updatedEstimatedReward.toString(),
+          phaseContributions: phaseContributions.length > 0 ? phaseContributions : prev.phaseContributions,
+          currentPhaseContributions: ethers.formatEther(totalContributionsResults[phase] as bigint || 0n) || prev.currentPhaseContributions,
+          userCurrentPhaseContributions: currentPhaseUserContrib.toString() || prev.userCurrentPhaseContributions,
+          totalTokensThisPhase: phaseAllocationsStr[phase] || prev.totalTokensThisPhase,
+          // Participants (only update if we have data)
+          participantsCount: updatedPhaseParticipants.length > 0 ? updatedPhaseParticipants.length : prev.participantsCount,
+          totalParticipants: allContributors.size > 0 ? allContributors.size : prev.totalParticipants,
+          phaseParticipants: updatedPhaseParticipants.length > 0 ? updatedPhaseParticipants : prev.phaseParticipants,
+          totalParticipantsData: Array.from(allContributors.values()).filter(d => d.value > 0).length > 0
+            ? Array.from(allContributors.values()).filter(d => d.value > 0)
+            : prev.totalParticipantsData,
+          pendingPhaseParticipants: filteredPending,
+          // Historical data: merge with existing to preserve minted amounts for already-minted phases
+          historicalData: historical.length > 0 ? historical.map((h) => {
+            // Preserve existing minted amount if new value is 0 but phase was minted
+            const phaseNum = parseInt(h.phase);
+            const existingEntry = prev.historicalData.find(prevH => prevH.phase === h.phase);
+            const existingMinted = existingEntry?.minted || 0;
+            if (h.minted === 0 && existingMinted > 0 && mintedPhases.includes(phaseNum)) {
+              return { ...h, minted: existingMinted };
+            }
+            return h;
+          }) : prev.historicalData,
+          historicalPhaseTokens: historicalPhaseTokens.length > 0 ? historicalPhaseTokens : prev.historicalPhaseTokens,
+          historicalPhaseParticipants: historicalPhaseParticipants.some(arr => arr.length > 0)
+            ? historicalPhaseParticipants
+            : prev.historicalPhaseParticipants,
+          historicalPhaseProgress: historicalPhaseProgress.length > 0 ? historicalPhaseProgress : prev.historicalPhaseProgress,
+          isLaunchComplete: isLaunchComplete ?? prev.isLaunchComplete,
+        }));
+        setPendingContributions(account, filteredPending);
+        setHasInitialUserFetch(true);
+        setErrorMessage(null);
+      } catch (error) {
+        console.error("Failed to fetch user contract data:", error);
+      } finally {
+        isFetchingUserRef.current = false;
+        if (!hasInitialUserFetch) setHasInitialUserFetch(true);
       }
-
-      // Fetch eligible tokens from contract for mintable phases (source of truth)
-      const eligibleTokensMap: Record<number, string> = {};
-      if (mintable.length > 0) {
-        const eligibleTokensResults = await Promise.all(
-          mintable.map((phaseIdx) =>
-            contract.getEligibleTokens(phaseIdx, account).catch(() => 0n)
-          )
-        );
-        mintable.forEach((phaseIdx, idx) => {
-          eligibleTokensMap[phaseIdx] = ethers.formatEther(eligibleTokensResults[idx] || 0n);
-        });
-      }
-
-      const [currentPhaseUserContrib, currentPhaseTotalContrib] = await Promise.all([
-        contract.contributions(phase, account).catch(() => 0n),
-        contract.totalContributions(phase).catch(() => 0n),
-      ]);
-      const totalTokensThisPhase = parseFloat(phaseAllocationsStr[phase] || '0');
-
-      const storedPending = getPendingContributions(account);
-      // Keep only active-phase pending; drop older-phase items
-      let filteredPending = storedPending.filter((p) => {
-        const phaseIndex = p.phase ?? phase;
-        const usingTime = Boolean(optimizedData.isTimeBased && optimizedData.launchTimestamp && optimizedData.phaseDuration);
-        let isPhaseActive = false;
-        if (usingTime) {
-          const endTs = Number(optimizedData.launchTimestamp || 0) + (phaseIndex + 1) * Number(optimizedData.phaseDuration || 0);
-          const nowTsX = Math.floor(Date.now() / 1000);
-          isPhaseActive = nowTsX <= endTs;
-        } else {
-          const phaseEnd = launch + PHASES[phaseIndex].end;
-          isPhaseActive = block1 <= phaseEnd;
-        }
-        return isPhaseActive && p.value > 0;
-      });
-
-      // Reconcile: if a pending tx is already mined, drop it from local storage
-      try {
-        const receipts = await Promise.all(
-          filteredPending.map((p) => (p.txHash ? provider.getTransactionReceipt(p.txHash).catch(() => null) : Promise.resolve(null)))
-        );
-        const stillPending: PieData[] = [];
-        for (let i = 0; i < filteredPending.length; i++) {
-          const r = receipts[i];
-          if (!r) stillPending.push(filteredPending[i]);
-        }
-        if (stillPending.length !== filteredPending.length) {
-          filteredPending = stillPending;
-          setPendingContributions(account, filteredPending);
-        }
-      } catch {}
-
-      // For current phase UI, compute totals including local pending for better estimate
-      const currentPhasePending = filteredPending.filter(p => (p.phase ?? phase) === phase);
-      const totalPendingContrib = currentPhasePending.reduce((sum, p) => sum + p.value, 0);
-      const totalPhaseContrib = parseFloat(ethers.formatEther(currentPhaseTotalContrib));
-      const totalPhaseContribWithPending = totalPhaseContrib + totalPendingContrib;
-      const totalUserContrib = parseFloat(ethers.formatEther(currentPhaseUserContrib)) + totalPendingContrib;
-
-      const updatedEstimatedReward = totalPhaseContribWithPending > 0
-        ? (totalUserContrib / totalPhaseContribWithPending) * totalTokensThisPhase
-        : 0;
-
-      const updatedPhaseParticipants = phaseParticipantsData.map(p => {
-        if (p.address === account) {
-          return { ...p, value: totalUserContrib, tokens: updatedEstimatedReward };
-        }
-        return p;
-      });
-      if (!updatedPhaseParticipants.some(p => p.address === account) && totalPendingContrib > 0) {
-        updatedPhaseParticipants.push({
-          name: `${account.slice(0, 6)}...`,
-          value: totalUserContrib,
-          address: account,
-          tokens: updatedEstimatedReward,
-          isPending: true,
-          phase,
-        });
-      }
-
-      setContractData((prev) => ({
-        ...prev,
-        currentPhase: isLaunchComplete ? phaseCountForUser - 1 : phase,
-        totalMinted: ethers.formatEther(minted),
-        blockNumber: Math.max(prev.blockNumber, block1),
-        launchBlock: launch,
-        userContributions: ethers.formatEther(aggregatedUserContrib),
-        totalContributions: ethers.formatEther(aggregatedTotalContrib),
-        mintablePhases: mintable,
-        mintedPhases,
-        phaseEligibleTokens: eligibleTokensMap,
-        estimatedReward: updatedEstimatedReward.toString(),
-        phaseContributions,
-        participantsCount: updatedPhaseParticipants.length,
-        totalParticipants: allContributors.size,
-        currentPhaseContributions: ethers.formatEther(currentPhaseTotalContrib),
-        userCurrentPhaseContributions: ethers.formatEther(currentPhaseUserContrib),
-        totalTokensThisPhase: phaseAllocationsStr[phase] || prev.totalTokensThisPhase,
-        phaseParticipants: updatedPhaseParticipants,
-        totalParticipantsData: Array.from(allContributors.values()).filter(d => d.value > 0),
-        pendingPhaseParticipants: filteredPending,
-        historicalData: historical,
-        historicalPhaseTokens: historicalPhaseTokens,
-        historicalPhaseParticipants,
-        historicalPhaseProgress,
-        isLaunchComplete,
-        codeSize: codeSize1 || prev.codeSize,
-      }));
-      setPendingContributions(account, filteredPending);
-      setHasInitialUserFetch(true);
-
-      setErrorMessage(null);
-    } catch (error) {
-      console.error("Failed to fetch user contract data:", error);
-      // Do not surface background refresh errors to the user; keep previous good data.
-      // We only show explicit errors for user-triggered actions (e.g., send/mint).
-    } finally {
-      isFetchingUserRef.current = false;
-      if (!hasInitialUserFetch) setHasInitialUserFetch(true);
+      return;
     }
-  }, [contract, provider, account, publicProvider, activeNetwork, optimizedData.isTimeBased, optimizedData.launchTimestamp, optimizedData.phaseDuration, optimizedData.phaseCount, optimizedData.scheduleEndTs, hasInitialUserFetch]);
+    
+    // Fallback: Wait for userData hook to load, don't fetch manually
+    // The hook handles all parallel fetching automatically
+    console.log('[fetchUserContractData] Waiting for userData hook to load...');
+  }, [contract, provider, account, publicProvider, optimizedData.isTimeBased, optimizedData.launchTimestamp, optimizedData.phaseDuration, optimizedData.phaseCount, optimizedData.scheduleEndTs, optimizedData.currentPhase, hasInitialUserFetch, userData, contractData.historicalData]);
 
   const [txMessage, setTxMessage] = useState<string | null>(null);
 
@@ -1721,42 +1839,146 @@ function Dashboard() {
     async (phase: number) => {
       if (!contract || !account) return alert("Please connect your wallet!");
       setIsMinting(prev => new Map(prev).set(phase, true));
+      
+      // Optimistically update UI immediately (don't wait for refetch)
+      const mintedAmount = contractData.phaseEligibleTokens[phase];
+      setContractData(prev => {
+        // Find or create historical entry for this phase
+        const phaseStr = phase.toString();
+        const existingIndex = prev.historicalData.findIndex(h => h.phase === phaseStr);
+        const updatedHistoricalData = [...prev.historicalData];
+        
+        if (existingIndex >= 0) {
+          // Update existing entry
+          updatedHistoricalData[existingIndex] = {
+            ...updatedHistoricalData[existingIndex],
+            minted: mintedAmount ? parseFloat(mintedAmount) : updatedHistoricalData[existingIndex].minted,
+          };
+        } else {
+          // Create new entry if it doesn't exist
+          updatedHistoricalData.push({
+            phase: phaseStr,
+            contributions: parseFloat(prev.phaseContributions[phase] || '0'),
+            minted: mintedAmount ? parseFloat(mintedAmount) : 0,
+          });
+        }
+        
+        return {
+          ...prev,
+          // Remove from mintablePhases immediately
+          mintablePhases: prev.mintablePhases.filter(p => p !== phase),
+          // Add to mintedPhases immediately
+          mintedPhases: prev.mintedPhases.includes(phase) ? prev.mintedPhases : [...prev.mintedPhases, phase],
+          // Update historical data with actual minted amount
+          historicalData: updatedHistoricalData,
+        };
+      });
+      
       try {
         const tx = await contract.mintUserShare(phase, { gasLimit: BASE_GAS_LIMIT });
         await tx.wait();
+        // Refetch to get accurate on-chain data (but UI already updated optimistically)
         await fetchUserContractData();
       } catch (error) {
         console.error("Minting failed:", error);
+        // Revert optimistic update on error
+        setContractData(prev => ({
+          ...prev,
+          mintablePhases: prev.mintablePhases.includes(phase) ? prev.mintablePhases : [...prev.mintablePhases, phase],
+          mintedPhases: prev.mintedPhases.filter(p => p !== phase),
+        }));
         alert(`Minting failed: ${(error as Error).message}`);
       } finally {
-      setIsMinting(prev => new Map(prev).set(phase, false));
+        setIsMinting(prev => new Map(prev).set(phase, false));
       }
     },
-    [contract, account, fetchUserContractData]
+    [contract, account, fetchUserContractData, contractData.phaseEligibleTokens]
   );
 
   const multiMint = useCallback(async () => {
     if (!contract || !account || contractData.mintablePhases.length === 0) return;
     setIsMinting(prev => new Map(prev).set(-1, true));
+    
+    // Optimistically update UI immediately for all phases
+    const phasesToMint = [...contractData.mintablePhases];
+    const mintedAmounts: Record<number, string> = {};
+    phasesToMint.forEach(phase => {
+      if (contractData.phaseEligibleTokens[phase]) {
+        mintedAmounts[phase] = contractData.phaseEligibleTokens[phase];
+      }
+    });
+    
+    setContractData(prev => {
+      // Update historical data properly (it's an array of objects, not indexed by phase)
+      const updatedHistoricalData = [...prev.historicalData];
+      phasesToMint.forEach(phase => {
+        const phaseStr = phase.toString();
+        const existingIndex = updatedHistoricalData.findIndex(h => h.phase === phaseStr);
+        const mintedAmount = mintedAmounts[phase];
+        
+        if (existingIndex >= 0) {
+          // Update existing entry
+          updatedHistoricalData[existingIndex] = {
+            ...updatedHistoricalData[existingIndex],
+            minted: mintedAmount ? parseFloat(mintedAmount) : updatedHistoricalData[existingIndex].minted,
+          };
+        } else {
+          // Create new entry
+          updatedHistoricalData.push({
+            phase: phaseStr,
+            contributions: parseFloat(prev.phaseContributions[phase] || '0'),
+            minted: mintedAmount ? parseFloat(mintedAmount) : 0,
+          });
+        }
+      });
+      
+      return {
+        ...prev,
+        // Remove all mintable phases immediately
+        mintablePhases: [],
+        // Add all to mintedPhases immediately
+        mintedPhases: [...new Set([...prev.mintedPhases, ...phasesToMint])],
+        // Update historical data with actual minted amounts
+        historicalData: updatedHistoricalData,
+      };
+    });
+    
+    const failedPhases: number[] = [];
     try {
       // MMM_Unified doesn't have mintMultipleUserShares, mint phases one by one
-      for (const phase of contractData.mintablePhases) {
+      for (const phase of phasesToMint) {
         try {
           const tx = await contract.mintUserShare(phase, { gasLimit: BASE_GAS_LIMIT });
           await tx.wait();
         } catch (error) {
           console.error(`Failed to mint phase ${phase}:`, error);
+          failedPhases.push(phase);
           // Continue with other phases even if one fails
         }
       }
+      // Revert failed phases
+      if (failedPhases.length > 0) {
+        setContractData(prev => ({
+          ...prev,
+          mintablePhases: [...prev.mintablePhases, ...failedPhases],
+          mintedPhases: prev.mintedPhases.filter(p => !failedPhases.includes(p)),
+        }));
+      }
+      // Refetch to get accurate on-chain data
       await fetchUserContractData();
     } catch (error) {
       console.error("Multi-minting failed:", error);
+      // Revert all optimistic updates on complete failure
+      setContractData(prev => ({
+        ...prev,
+        mintablePhases: phasesToMint,
+        mintedPhases: prev.mintedPhases.filter(p => !phasesToMint.includes(p)),
+      }));
       alert(`Multi-minting failed: ${(error as Error).message}`);
     } finally {
-    setIsMinting(prev => new Map(prev).set(-1, false));
+      setIsMinting(prev => new Map(prev).set(-1, false));
     }
-  }, [contract, account, contractData.mintablePhases, fetchUserContractData]);
+  }, [contract, account, contractData.mintablePhases, contractData.phaseEligibleTokens, fetchUserContractData]);
 
   const fetchUserStakes = useCallback(async () => {
     if (!stakingContract || !account) {
@@ -1952,19 +2174,25 @@ function Dashboard() {
     }
   }, [isConnected, walletClient, account, activeNetwork, switchChain, fetchUserContractData, fetchPublicContractData, publicProvider, hasInitialLoad, hasOptimizedData, optimizedData.isLoading]);
 
-  // Ensure public data loads even before wallet client is ready (only if no optimized data)
-  // Fetch global contributors data even when optimized data is available (optimized data skips this)
+  // DISABLED: Public fetch should NOT run when we have optimized data - it causes flickering
+  // Optimized data hook handles all global data fetching
+  // Only fetch if we don't have optimized data at all
   useEffect(() => {
     if (!publicProvider) return;
-    // Always fetch global data occasionally (every 30s) since optimized hook skips heavy global contributors fetch
-    // This ensures we get global contributions, top contributors, and phase participant data
-    if (!hasOptimizedData || !optimizedData.isLoading) {
+    // Completely skip public fetch if we have optimized data - prevents overwrites and flickering
+    if (hasOptimizedData) {
+      return;
+    }
+    // Only fetch if we don't have optimized data
+    if (!hasOptimizedData && !optimizedData.isLoading) {
       fetchPublicContractData();
     }
     const interval = setInterval(() => {
-      // Always refresh global contributors data periodically (needed for Global Contributions and Top Contributors)
-      fetchPublicContractData();
-    }, 30000); // Fetch global contributors data every 30 seconds
+      // Only refresh if we don't have optimized data
+      if (!hasOptimizedData) {
+        fetchPublicContractData();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, [publicProvider, fetchPublicContractData, hasOptimizedData, optimizedData.isLoading]);
 
@@ -1988,13 +2216,14 @@ function Dashboard() {
     }
   }, [errorMessage]);
 
-// Auto-dismiss the confirmation banner when the participated phase finishes
+// Keep participation banner visible for at least 60s; do NOT clear on phase change
 useEffect(() => {
   if (!lastContribution) return;
-  if (contractData.currentPhase !== lastContribution.phase) {
+  const timer = setTimeout(() => {
     setLastContribution(null);
-  }
-}, [contractData.currentPhase, lastContribution]);
+  }, 60000);
+  return () => clearTimeout(timer);
+}, [lastContribution]);
 
   // Immediately clear user-only fields when disconnecting or when the account changes,
   // so we don't show stale pending/estimates from the previous account
@@ -2101,9 +2330,39 @@ useEffect(() => {
       setErrorMessage(null);
       setTxMessage(null); // Clear the "Waiting for wallet confirmation..." message
 
-      // CRITICAL: Only fetch with old method if we DON'T have optimized data
-      if (!hasOptimizedData && !optimizedData.isLoading) {
-        setTimeout(fetchUserContractData, 5000);
+      // Always refresh user data after successful contribution to update mintable phases
+      // Wait for transaction receipt first, then refresh
+      // BUT don't clear lastContribution immediately - let it persist for user feedback
+      if (provider && txData) {
+        provider.getTransactionReceipt(txData).then((receipt) => {
+          if (receipt) {
+            // Mark pending contribution as confirmed
+            const tempParticipantWithConfirm = {
+              ...tempParticipant,
+              isPending: false,
+              confirmedAt: Date.now(),
+            };
+            setPendingContributions(account, [
+              ...contractData.pendingPhaseParticipants.filter(p => p.txHash !== txData),
+              tempParticipantWithConfirm as PieData & { confirmedAt: number },
+            ]);
+            
+            // Transaction confirmed, wait a bit for contract state to update, then refresh
+            setTimeout(() => {
+              if (contract && account) {
+                console.log('Refreshing user data after contribution confirmation...');
+                fetchUserContractData();
+              }
+            }, 3000); // Increased to 3 seconds after confirmation for contract state to update
+          }
+        }).catch(() => {
+          // If receipt check fails, still try to refresh after delay
+          setTimeout(() => {
+            if (contract && account) {
+              fetchUserContractData();
+            }
+          }, 8000); // Increased delay for failed receipt check
+        });
       }
     } else if (txError) {
       setIsSending(false);
@@ -2111,17 +2370,26 @@ useEffect(() => {
     }
   }, [isSuccess, txError, txData, contract, provider, account, ethAmount, contractData, fetchUserContractData, lastTxHash, hasOptimizedData, optimizedData.isLoading]);
 
+  // Sync userData from hook into contractData state automatically
+  useEffect(() => {
+    if (isConnected && userData && !userData.isLoading && userData.phaseContributions.length > 0) {
+      // Trigger fetchUserContractData which will use the hook data
+      fetchUserContractData();
+    }
+  }, [isConnected, userData, userData?.mintablePhases, userData?.mintedPhases, userData?.phaseEligibleTokens, fetchUserContractData]);
+
   useEffect(() => {
     // CRITICAL: Don't fetch with old method if we have optimized data - it causes flickering
-    if (isConnected && !stableContractData.isLaunchComplete && !hasOptimizedData) {
+    // Only use manual fetch as fallback if hook data not available
+    if (isConnected && !stableContractData.isLaunchComplete && !hasOptimizedData && (!userData || userData.isLoading)) {
       const interval = setInterval(() => {
         if (!hasOptimizedData && !optimizedData.isLoading) {
           fetchUserContractData();
         }
-      }, 15000); // Increased from 6000 to 15000 - much less frequent
+      }, 20000); // Even less frequent - hook handles most updates
       return () => clearInterval(interval);
     }
-  }, [isConnected, stableContractData.isLaunchComplete, fetchUserContractData, hasOptimizedData, optimizedData.isLoading]);
+  }, [isConnected, stableContractData.isLaunchComplete, fetchUserContractData, hasOptimizedData, optimizedData.isLoading, userData]);
 
   // While the confirmation banner is visible, refresh user data more frequently
   // CRITICAL: Only do this if we DON'T have optimized data - optimized data handles its own refresh
@@ -2281,10 +2549,57 @@ useEffect(() => {
     [stakingContract, account, fetchUserStakes, fetchTokenBalance]
   );
 
+  // Estimate emergency exit return (client-side approximation)
+  const estimateEmergencyExit = useCallback((stake: UserStakeView, earlyPenaltyMaxBps: number): { estimatedReturn: string; penalty: string; penaltyPercent: number } => {
+    const now = Math.floor(Date.now() / 1000);
+    const lockTotal = Math.max(1, stake.maturityTs - stake.startTs);
+    const remaining = Math.max(0, stake.maturityTs - now);
+    const remainingFraction = lockTotal > 0 ? remaining / lockTotal : 1;
+    
+    // Early penalty scales linearly with remaining time (0 to earlyPenaltyMaxBps)
+    const penaltyBps = Math.floor(earlyPenaltyMaxBps * remainingFraction);
+    const penaltyWei = (stake.amountWei * BigInt(penaltyBps)) / 10000n;
+    const estimatedReturnWei = stake.amountWei - penaltyWei;
+    
+    return {
+      estimatedReturn: ethers.formatUnits(estimatedReturnWei, 18),
+      penalty: ethers.formatUnits(penaltyWei, 18),
+      penaltyPercent: penaltyBps / 100,
+    };
+  }, []);
+
   // Emergency exit is handled by stakeEnd in MMM_Unified (early exit with penalties)
   const handleEmergencyExit = useCallback(
     async (stakeId: number) => {
       if (!stakingContract || !account) return;
+      
+      // Find the stake to show estimated return
+      const stake = userStakes.find(s => s.id === stakeId);
+      if (!stake) {
+        alert("Stake not found");
+        return;
+      }
+      
+      // Get early penalty max for estimation
+      let earlyPenaltyMaxBps = 9000; // Default 90%
+      try {
+        const bpsBn: bigint = await stakingContract.EARLY_PENALTY_MAX_BPS();
+        earlyPenaltyMaxBps = Number(bpsBn);
+      } catch {}
+      
+      const estimate = estimateEmergencyExit(stake, earlyPenaltyMaxBps);
+      
+      // Confirm with user showing estimated return
+      const confirmed = window.confirm(
+        `Emergency Exit Stake #${stakeId}?\n\n` +
+        `Staked: ${stake.amount} ${stableContractData.tokenSymbol || 'MMM'}\n` +
+        `Estimated Penalty: ${estimate.penalty} ${stableContractData.tokenSymbol || 'MMM'} (${estimate.penaltyPercent.toFixed(2)}%)\n` +
+        `Estimated Return: ${estimate.estimatedReturn} ${stableContractData.tokenSymbol || 'MMM'}\n\n` +
+        `This is an approximation. Actual return may vary based on rewards accrued.`
+      );
+      
+      if (!confirmed) return;
+      
       try {
         // Find stake index by stakeId
         const countBn: bigint = await stakingContract.stakeCount(account);
@@ -2314,7 +2629,7 @@ useEffect(() => {
         // Loading state handled by isMinting map
       }
     },
-    [stakingContract, account, fetchUserStakes, fetchTokenBalance]
+    [stakingContract, account, fetchUserStakes, fetchTokenBalance, userStakes, estimateEmergencyExit, stableContractData.tokenSymbol]
   );
 
   // Rewards are automatically distributed in MMM_Unified, no separate claim function
@@ -2353,7 +2668,7 @@ useEffect(() => {
       />
       <div className="mx-auto max-w-7xl flex flex-col px-4 sm:px-6 lg:px-8 md:gap-2 lg:gap-3">
         {/* Only show full-screen loading overlay on first load when no data at all */}
-        {isInitialLoading && !hasInitialLoad && !hasStableData && !hasOptimizedData && (
+        {isInitialLoading && !hasInitialLoad && !hasStableDataRef.current && !hasOptimizedDataRef.current && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
             <div className="glass p-8 rounded-lg text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
@@ -2485,7 +2800,11 @@ useEffect(() => {
 	                        <div>
                           <div className="text-gray-300">{optimizedData.isTimeBased ? 'Time left' : 'Blocks left'}</div>
                           <div className={`font-mono text-white ${blocksLeftFlash ? 'flash-text' : ''}`}>
-                            {blocksLeftDisplay}
+                            {!blocksLeftDisplay ? (
+                              <span className="inline-block h-4 w-16 bg-gray-700/60 rounded animate-pulse" />
+                            ) : (
+                              blocksLeftDisplay
+                            )}
                           </div>
 
 
@@ -2582,8 +2901,8 @@ useEffect(() => {
 	                  </div>
 	                  <div className="text-gray-300">{optimizedData.isTimeBased ? 'Time left' : 'Blocks left'}</div>
 	                  <div className={`font-mono text-white ${blocksLeftFlash ? 'flash-text' : ''}`}>
-	                    {isInitialLoading && !hasInitialLoad ? (
-	                      <span className="inline-block h-4 w-8 bg-gray-700/60 rounded animate-pulse" />
+	                    {(isInitialLoading && !hasInitialLoad) || !blocksLeftDisplay ? (
+	                      <span className="inline-block h-4 w-16 bg-gray-700/60 rounded animate-pulse" />
 	                    ) : (
 	                      blocksLeftDisplay
 	                    )}
@@ -2634,31 +2953,58 @@ useEffect(() => {
               >
                 {isSending ? "Processing..." : "Send ETH"}
               </button>
-              {isConnected && contractData.pendingPhaseParticipants.length > 0 && (
+              {isConnected && contractData.pendingPhaseParticipants.length > 0 && (() => {
+                // Filter pending contributions to only show those for phases user participated in or current phase
+                const currentPhase = contractData.currentPhase ?? 0;
+                const userPhases = new Set<number>();
+                // Add current phase
+                userPhases.add(currentPhase);
+                // Add phases where user has contributions
+                (contractData.phaseContributions || []).forEach((contrib, phaseIdx) => {
+                  const contribAmount = parseFloat(contrib || '0');
+                  if (contribAmount > 0) {
+                    userPhases.add(phaseIdx);
+                  }
+                });
+                // Add phases where user has minted
+                (contractData.mintedPhases || []).forEach(phase => userPhases.add(phase));
+                // Add phases where user can mint
+                (contractData.mintablePhases || []).forEach(phase => userPhases.add(phase));
+                
+                const relevantPending = contractData.pendingPhaseParticipants.filter(p => {
+                  const pendingPhase = p.phase ?? currentPhase;
+                  return userPhases.has(pendingPhase);
+                });
+                
+                return relevantPending.length > 0 ? (
+                  <div className="mt-4 text-sm">
+                    <p className="text-gray-300 font-semibold">Pending Contributions:</p>
+                    {relevantPending.map((p, index) => (
+                      <div key={p.txHash || index} className="mt-2">
+                        <p>{p.address?.slice(0, 6)}...{p.address?.slice(-4)}</p>
+                        <p>Contribution: <ToggleDecimals value={p.value.toString()} /> ETH</p>
+                        <p>
+                          Estimated Reward: <ToggleDecimals value={p.tokens!.toString()} /> MMM
+                          {p.isPending ? " (Pending)" : " (Confirmed)"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+              {/* Show a skeleton while connecting; only show connect message when truly disconnected */}
+              {!isConnected ? (
                 <div className="mt-4 text-sm">
-                  <p className="text-gray-300 font-semibold">Pending Contributions:</p>
-                  {contractData.pendingPhaseParticipants.map((p, index) => (
-                    <div key={p.txHash || index} className="mt-2">
-                      <p>{p.address?.slice(0, 6)}...{p.address?.slice(-4)}</p>
-                      <p>Contribution: <ToggleDecimals value={p.value.toString()} /> ETH</p>
-                      <p>
-                        Estimated Reward: <ToggleDecimals value={p.tokens!.toString()} /> MMM
-                        {p.isPending && " (Pending)"}
-                      </p>
-                    </div>
-                  ))}
+                  <div className="h-10 w-full rounded bg-gray-700/50 animate-pulse" />
                 </div>
-              )}
-              {hydrated && !isConnected && (
-                <p className="mt-4 text-gray-400 text-sm">Connect wallet to participate.</p>
-              )}
+              ) : null}
             </motion.div>
             {isConnected && (
               <motion.div
                 key="mint-section"
                 className="pt-6 mt-6 border-t border-white/10"
               >
-                {(!hasStableData || !hasInitialUserFetch) && isConnected ? (
+                {(!hasStableDataRef.current || !hasInitialUserFetchRef.current) && isConnected ? (
                   <MintTokensLoading />
                 ) : (
                   <>
@@ -2783,17 +3129,25 @@ useEffect(() => {
                             <>
                               <p className="text-gray-300 text-sm mt-4">Previously Minted:</p>
                               {contractData.mintedPhases.map((phase) => {
-                                // Use historical data minted amount if available, otherwise calculate
-                                const mintedAmount = contractData.historicalData[phase]?.minted || 0;
-                                const phaseTokens = parseFloat(contractData.historicalPhaseTokens[phase] || (PHASES[phase]?.amount ?? "0"));
-                                const userContrib = parseFloat(contractData.phaseContributions[phase]);
-                                const totalContrib = contractData.historicalData[phase]?.contributions || 1;
-                                const calculatedMinted = mintedAmount > 0 
-                                  ? mintedAmount 
-                                  : (userContrib / totalContrib) * phaseTokens;
+                                // For already-minted phases, phaseEligibleTokens is 0, so use historicalData
+                                // Check if phaseEligibleTokens has a valid non-zero value first
+                                const eligibleTokens = contractData.phaseEligibleTokens[phase];
+                                const eligibleAmount = eligibleTokens && parseFloat(eligibleTokens) > 0 
+                                  ? parseFloat(eligibleTokens) 
+                                  : null;
+                                
+                                // Use historicalData for minted phases (preserved from when it was mintable)
+                                // historicalData is an array of objects with phase as string
+                                const phaseStr = phase.toString();
+                                const historicalEntry = contractData.historicalData.find(h => h.phase === phaseStr);
+                                const historicalMinted = historicalEntry?.minted || 0;
+                                
+                                // Prefer eligibleTokens if > 0, otherwise use historicalData
+                                const mintedAmount = eligibleAmount !== null ? eligibleAmount : historicalMinted;
+                                
                                 return (
                                   <p key={phase} className="text-gray-400 text-sm">
-                                    Phase {phase} - Minted {abbreviateNumber(calculatedMinted)} MMM
+                                    Phase {phase} - Minted {abbreviateNumber(mintedAmount)} MMM
                                   </p>
                                 );
                               })}
@@ -2819,7 +3173,7 @@ useEffect(() => {
               blocksSinceLaunch={blocksSinceLaunch}
               totalBlocks={TOTAL_BLOCKS}
               blocksLeft={blocksLeftNum}
-              isLoading={!hasStableData && (optimizedData.isLoading || !hasValidatedData)}
+              isLoading={!hasStableDataRef.current && (optimizedData.isLoading || !hasValidatedData)}
               totalTokensThisPhase={stableContractData.totalTokensThisPhase}
               userCurrentPhaseContributions={contractData.userCurrentPhaseContributions}
               estimatedReward={contractData.estimatedReward}
@@ -2839,8 +3193,8 @@ useEffect(() => {
               scheduleEndTs={optimizedData.scheduleEndTs}
               currentPhaseStartTs={optimizedData.currentPhaseStartTs}
               currentPhaseEndTs={optimizedData.currentPhaseEndTs}
-              phaseCount={optimizedData.phaseCount}
-              nextPhase={optimizedData.nextPhase}
+              phaseCount={totalPhases}
+              nextPhase={optimizedData.phaseCount !== undefined && calculatedCurrentPhase < optimizedData.phaseCount - 1 ? calculatedCurrentPhase + 1 : null}
               nextPhaseStartTs={optimizedData.nextPhaseStartTs}
               nextPhaseEndTs={optimizedData.nextPhaseEndTs}
               nextPhaseAllocation={optimizedData.nextPhaseAllocation}
@@ -3244,35 +3598,54 @@ useEffect(() => {
                         );
                       })()}
 
-                      <div className="flex items-center gap-2">
-                        {(s.status === 'IN_GRACE' || s.status === 'LATE') && !s.closed && (
-                          <button
-                            type="button"
-                            onClick={() => handleUnstake(s.id)}
-                            className="px-3 py-1.5 rounded-md text-sm font-semibold"
-                            style={{ background: `linear-gradient(to right, var(--primary), var(--accent))` }}
-                          >
-                            Unstake
-                          </button>
-                        )}
-                        {s.status === 'ACTIVE' && !s.closed && (
-                          <button
-                            type="button"
-                            onClick={() => handleEmergencyExit(s.id)}
-                            className="px-3 py-1.5 rounded-md text-sm font-semibold bg-amber-600/80 hover:bg-amber-600"
-                          >
-                            Emergency Exit
-                          </button>
-                        )}
-                        {s.pendingRewardsWei > 0n && (
-                          <button
-                            type="button"
-                            onClick={() => handleClaimRewards()}
-                            className="px-3 py-1.5 rounded-md text-sm font-semibold bg-indigo-600/80 hover:bg-indigo-600"
-                          >
-                            Claim Rewards ({s.pendingRewards})
-                          </button>
-                        )}
+                      <div className="flex flex-col gap-2">
+                        {/* Show estimated return for emergency exit */}
+                        {s.status === 'ACTIVE' && !s.closed && (() => {
+                          const earlyPenaltyMaxBps = stakingParams.earlyPenaltyMaxBps ?? 9000; // Default 90%
+                          const estimate = estimateEmergencyExit(s, earlyPenaltyMaxBps);
+                          return (
+                            <div className="text-xs text-gray-400 bg-amber-500/10 border border-amber-500/20 rounded p-2">
+                              <div className="font-semibold text-amber-300 mb-1">Emergency Exit Estimate:</div>
+                              <div className="space-y-0.5">
+                                <div>Staked: <span className="text-white font-mono">{s.amount} {stableContractData.tokenSymbol || 'MMM'}</span></div>
+                                <div>Estimated Penalty: <span className="text-amber-300 font-mono">{estimate.penalty} {stableContractData.tokenSymbol || 'MMM'}</span> ({estimate.penaltyPercent.toFixed(2)}%)</div>
+                                <div>Estimated Return: <span className="text-green-300 font-mono">{estimate.estimatedReturn} {stableContractData.tokenSymbol || 'MMM'}</span></div>
+                                <div className="text-[10px] text-gray-500 mt-1">* Approximation. Actual return may vary based on rewards accrued.</div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        
+                        <div className="flex items-center gap-2">
+                          {(s.status === 'IN_GRACE' || s.status === 'LATE') && !s.closed && (
+                            <button
+                              type="button"
+                              onClick={() => handleUnstake(s.id)}
+                              className="px-3 py-1.5 rounded-md text-sm font-semibold"
+                              style={{ background: `linear-gradient(to right, var(--primary), var(--accent))` }}
+                            >
+                              End Stake
+                            </button>
+                          )}
+                          {s.status === 'ACTIVE' && !s.closed && (
+                            <button
+                              type="button"
+                              onClick={() => handleEmergencyExit(s.id)}
+                              className="px-3 py-1.5 rounded-md text-sm font-semibold bg-amber-600/80 hover:bg-amber-600"
+                            >
+                              Emergency Exit
+                            </button>
+                          )}
+                          {s.pendingRewardsWei > 0n && (
+                            <button
+                              type="button"
+                              onClick={() => handleClaimRewards()}
+                              className="px-3 py-1.5 rounded-md text-sm font-semibold bg-indigo-600/80 hover:bg-indigo-600"
+                            >
+                              Claim Rewards ({s.pendingRewards})
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3349,7 +3722,20 @@ useEffect(() => {
                   <div className="mt-1.5 font-mono" style={{ color: 'var(--foreground)' }}>{(isConnected && !hasInitialUserFetch) ? '—' : `${totalUserContributions.toFixed(4)} ETH`}</div>
                 </div>
                 {(() => {
-                  const totalMintedUser = (contractData.historicalData || []).reduce((s, x) => s + (x.minted || 0), 0);
+                  // Calculate total minted from historicalData (preserved minted amounts)
+                  // Also check phaseEligibleTokens for any phases that might not be in historicalData yet
+                  const totalFromHistorical = (contractData.historicalData || []).reduce((s, x) => s + (x.minted || 0), 0);
+                  const totalFromEligible = Object.entries(contractData.phaseEligibleTokens || {}).reduce((sum, [phase, amount]) => {
+                    const phaseNum = parseInt(phase);
+                    const amountNum = parseFloat(amount || '0');
+                    // Only count if phase is minted and amount > 0
+                    if (contractData.mintedPhases.includes(phaseNum) && amountNum > 0) {
+                      return sum + amountNum;
+                    }
+                    return sum;
+                  }, 0);
+                  // Use the higher value (covers both cases)
+                  const totalMintedUser = Math.max(totalFromHistorical, totalFromEligible);
                   return (
                     <div className="glass p-3 hover:shadow-2xl transition-shadow duration-300">
                       <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>

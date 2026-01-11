@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import { useReadContract, useReadContracts, useBlockNumber } from 'wagmi';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { keepPreviousData } from '@tanstack/react-query';
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESSES } from '../lib/wagmi';
 import { PHASES, TOTAL_BLOCKS } from '../app/constants';
@@ -45,6 +45,7 @@ interface PieData {
 
 export interface OptimizedContractData {
   currentPhase: number;
+  calculatedCurrentPhase: number; // Consistent phase calculation
   totalMinted: string;
   totalContributions: string;
   currentPhaseContributions: string;
@@ -76,7 +77,7 @@ export interface OptimizedContractData {
   tokenSymbol: string;
   // Status
   isLoading: boolean;
-  error: any;
+  error: unknown;
   isValidated: boolean;
   hasBasicData: boolean;
   hasPhaseData: boolean;
@@ -86,9 +87,19 @@ export interface OptimizedContractData {
 // Hook for optimized parallel contract data fetching
 export function useOptimizedContractData(chainId: number): OptimizedContractData {
   const contractAddress = CONTRACT_ADDRESSES[chainId as keyof typeof CONTRACT_ADDRESSES];
+  const contractAddressRef = useRef<string | undefined>(contractAddress);
   
   // Use a ref to persist isTimeBased once determined (prevents flickering)
+  // Reset when contract address changes
   const isTimeBasedRef = useRef<boolean | null>(null);
+  
+  // Reset isTimeBased ref when contract address changes
+  useEffect(() => {
+    if (contractAddressRef.current !== contractAddress) {
+      contractAddressRef.current = contractAddress;
+      isTimeBasedRef.current = null;
+    }
+  }, [contractAddress]);
 
   // Get current block number for calculations with real-time polling
   const { data: blockNumber } = useBlockNumber({
@@ -138,27 +149,105 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
   });
 
   // Extract basic data (needed for time-based reads that depend on currentPhase)
-  const currentPhase = contractReads?.[0]?.result ? Number(contractReads[0].result) : 0;
+  const contractReportedPhase = contractReads?.[0]?.result ? Number(contractReads[0].result) : 0;
   const totalSupply = contractReads?.[1]?.result || BigInt(0);
   const launchBlock = contractReads?.[2]?.result ? Number(contractReads[2].result) : 0;
   const tokenName = contractReads?.[3]?.result || 'MrManMan';
   const tokenSymbol = contractReads?.[4]?.result || 'MMM';
 
   // Optional time-based reads (MMM_Unified). These may fail on legacy contracts; handle gracefully.
-  const { data: timeReads } = useReadContracts({
+  // First, fetch basic time info to calculate actual current phase
+  const { data: timeReadsBasic, error: timeReadsError, isLoading: isTimeReadsLoading } = useReadContracts({
     contracts: [
       { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'LAUNCH_TIMESTAMP' },
       { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'PHASE_COUNT' },
       { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'PHASE_DURATION' },
       { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'PHASE_0_DURATION' },
       { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'MIN_CONTRIBUTION_WEI' },
-      // Phase-relative bounds for current phase
-      { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'phaseStartTs', args: [BigInt(currentPhase)] },
-      { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'phaseEndTs', args: [BigInt(currentPhase)] },
-      { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'phaseAllocation', args: [BigInt(currentPhase)] },
     ],
     query: {
-      enabled: !!contractReads && currentPhase >= 0,
+      enabled: !!contractReads,
+      refetchInterval: 30000, // Less aggressive - every 30 seconds
+      staleTime: 20000, // Keep data fresh for 20 seconds
+      placeholderData: keepPreviousData,
+    },
+  });
+
+  // Calculate actual current phase from timestamps if we have time-based data
+  // This fixes cases where getCurrentPhase() returns wrong value (e.g., stuck at 0)
+  const calculatedCurrentPhase = useMemo(() => {
+    const launchTs = timeReadsBasic?.[0]?.result !== undefined && timeReadsBasic?.[0]?.result !== null
+      ? Number(timeReadsBasic[0].result)
+      : undefined;
+    const phaseCount = timeReadsBasic?.[1]?.result !== undefined && timeReadsBasic?.[1]?.result !== null
+      ? Number(timeReadsBasic[1].result)
+      : undefined;
+    const phase0Duration = timeReadsBasic?.[3]?.result ? Number(timeReadsBasic[3].result) : 900;
+
+    if (!launchTs || !phaseCount || launchTs === 0) return contractReportedPhase;
+
+    const nowTs = Math.floor(Date.now() / 1000);
+    const elapsed = nowTs - launchTs;
+
+    if (elapsed < 0) return 0;
+
+    // Get phase 0 duration
+    const phase0DurationActual = timeReadsBasic?.[3]?.result ? Number(timeReadsBasic[3].result) : 900;
+
+    if (elapsed < phase0DurationActual) return 0;
+
+    // Calculate phase from elapsed time (same logic as main page)
+    let calculatedPhase = 0;
+    let cumulative = phase0DurationActual;
+
+    // Phases 0-10: 15 min each (900s)
+    for (let i = 1; i <= 10; i++) {
+      cumulative += 900;
+      if (elapsed < cumulative) {
+        calculatedPhase = i;
+        break;
+      }
+    }
+
+    // Phases 11-20: 30 min each (1800s)
+    if (calculatedPhase === 0 && elapsed >= cumulative) {
+      for (let i = 11; i <= 20; i++) {
+        cumulative += 1800;
+        if (elapsed < cumulative) {
+          calculatedPhase = i;
+          break;
+        }
+      }
+    }
+
+    // Rest: 1 hour each (3600s)
+    if (calculatedPhase === 0 && elapsed >= cumulative) {
+      const defaultDuration = 3600;
+      for (let i = 21; i < phaseCount; i++) {
+        cumulative += defaultDuration;
+        if (elapsed < cumulative) {
+          calculatedPhase = i;
+          break;
+        }
+      }
+      if (calculatedPhase === 0) {
+        calculatedPhase = phaseCount - 1;
+      }
+    }
+
+    return calculatedPhase;
+  }, [contractReportedPhase, timeReadsBasic]);
+
+  // Now fetch phase-specific data using calculated phase
+  const { data: timeReads } = useReadContracts({
+    contracts: [
+      // Phase-relative bounds for calculated current phase
+      { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'phaseStartTs', args: [BigInt(calculatedCurrentPhase)] },
+      { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'phaseEndTs', args: [BigInt(calculatedCurrentPhase)] },
+      { address: contractAddress as `0x${string}`, abi: CONTRACT_ABI, functionName: 'phaseAllocation', args: [BigInt(calculatedCurrentPhase)] },
+    ],
+    query: {
+      enabled: !!contractReads && calculatedCurrentPhase >= 0,
       refetchInterval: 10000, // Reduced from 3000 - less frequent updates to prevent flickering
       staleTime: 5000, // Increased from 1000 - data stays fresh longer
       placeholderData: keepPreviousData, // Keep previous data during refetches
@@ -166,19 +255,26 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
   });
 
   // Optional time-based values (MMM_Unified)
-  const launchTimestamp = timeReads?.[0]?.result ? Number(timeReads[0].result) : (timeReads ? 0 : undefined);
-  const phaseCount = timeReads?.[1]?.result ? Number(timeReads[1].result) : (timeReads ? 0 : undefined);
-  const phaseDuration = timeReads?.[2]?.result ? Number(timeReads[2].result) : (timeReads ? 0 : undefined);
-  const phase0Duration = timeReads?.[3]?.result ? Number(timeReads[3].result) : 0;
-  const minContributionWei = timeReads?.[4]?.result ? (timeReads[4].result as bigint) : 0n;
-  const currentPhaseStartTs = timeReads?.[5]?.result ? Number(timeReads[5].result) : 0;
-  let currentPhaseEndTs = timeReads?.[6]?.result ? Number(timeReads[6].result) : 0;
-  const phaseAllocationRaw = timeReads?.[7]?.result ? (timeReads[7].result as bigint) : null;
+  // Extract from timeReadsBasic (basic info) and timeReads (phase-specific)
+  const launchTimestamp = timeReadsBasic?.[0]?.result !== undefined && timeReadsBasic?.[0]?.result !== null 
+    ? Number(timeReadsBasic[0].result) 
+    : undefined;
+  const phaseCount = timeReadsBasic?.[1]?.result !== undefined && timeReadsBasic?.[1]?.result !== null
+    ? Number(timeReadsBasic[1].result)
+    : undefined;
+  const phaseDuration = timeReadsBasic?.[2]?.result !== undefined && timeReadsBasic?.[2]?.result !== null
+    ? Number(timeReadsBasic[2].result)
+    : undefined;
+  const phase0Duration = timeReadsBasic?.[3]?.result ? Number(timeReadsBasic[3].result) : 0;
+  const minContributionWei = timeReadsBasic?.[4]?.result ? (timeReadsBasic[4].result as bigint) : 0n;
+  const currentPhaseStartTs = timeReads?.[0]?.result ? Number(timeReads[0].result) : 0;
+  let currentPhaseEndTs = timeReads?.[1]?.result ? Number(timeReads[1].result) : 0;
+  const phaseAllocationRaw = timeReads?.[2]?.result ? (timeReads[2].result as bigint) : null;
   
   // Fix for Phase 0: ensure phaseEndTs correctly uses PHASE_0_DURATION
   // The contract's phaseEndTs might use PHASE_DURATION instead of PHASE_0_DURATION for Phase 0
   // So we verify and fix if needed
-  if (currentPhase === 0 && launchTimestamp !== undefined && launchTimestamp > 0 && phase0Duration > 0) {
+  if (calculatedCurrentPhase === 0 && launchTimestamp !== undefined && launchTimestamp > 0 && phase0Duration > 0) {
     const expectedEndTs = launchTimestamp + phase0Duration;
     // If the fetched endTs doesn't match expected (using wrong duration), use calculated value
     if (currentPhaseEndTs === 0 || Math.abs(currentPhaseEndTs - expectedEndTs) > 1) {
@@ -200,7 +296,7 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
   });
   
   // Fetch next phase info for display
-  const nextPhase = phaseCount !== undefined && currentPhase < phaseCount - 1 ? currentPhase + 1 : null;
+  const nextPhase = phaseCount !== undefined && calculatedCurrentPhase < phaseCount - 1 ? calculatedCurrentPhase + 1 : null;
   const { data: nextPhaseStartTs } = useReadContract({
     address: contractAddress as `0x${string}`,
     abi: CONTRACT_ABI,
@@ -224,7 +320,7 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
       staleTime: 2000,
     },
   });
-  
+
   const { data: nextPhaseAllocation } = useReadContract({
     address: contractAddress as `0x${string}`,
     abi: CONTRACT_ABI,
@@ -239,7 +335,7 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
   
   // Calculate scheduleEndTs from last phase end (MMM_Unified doesn't have totalScheduleEndTs)
   const scheduleEndTs = lastPhaseEndTs ? Number(lastPhaseEndTs) : 
-    (currentPhaseEndTs && phaseCount !== undefined && phaseCount > 0 && currentPhase === phaseCount - 1
+    (currentPhaseEndTs && phaseCount !== undefined && phaseCount > 0 && calculatedCurrentPhase === phaseCount - 1
       ? currentPhaseEndTs
       : (launchTimestamp !== undefined && phaseCount !== undefined && phaseDuration !== undefined ? launchTimestamp + phaseCount * phaseDuration : 0));
 
@@ -247,9 +343,16 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
   // CRITICAL: Stable isTimeBased check - once determined, NEVER change it
   // This prevents ALL flickering by making the determination permanent
   const isTimeBased = useMemo(() => {
-    // Check if we have valid time-based data (all values > 0)
-    const hasTimeData = launchTimestamp !== undefined && phaseCount !== undefined && phaseDuration !== undefined &&
-                        launchTimestamp > 0 && phaseCount > 0 && phaseDuration > 0;
+    // PRIMARY CHECK: If we have phaseCount > 0, it's definitely time-based
+    // This is the most reliable indicator (legacy contracts don't have PHASE_COUNT)
+    if (phaseCount !== undefined && phaseCount > 0) {
+      isTimeBasedRef.current = true;
+      return true;
+    }
+    
+    // SECONDARY CHECK: If we have launchTimestamp > 0 AND phaseDuration > 0, it's time-based
+    const hasTimeData = launchTimestamp !== undefined && launchTimestamp > 0 &&
+                        phaseDuration !== undefined && phaseDuration > 0;
     
     if (hasTimeData) {
       // We have confirmed time-based data - SET IT PERMANENTLY
@@ -264,16 +367,31 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
       return true;
     }
     
+    // If timeReads exists (contract supports time-based functions), assume it's time-based
+    // even if values haven't loaded yet (they will load soon)
+    if (timeReads && timeReads.length > 0 && !isTimeReadsLoading && !timeReadsError) {
+      // Contract has time-based functions and we're not loading/erroring
+      // Wait a moment for values, but if we've seen phaseCount before, trust it
+      // For now, if any time-based read succeeded, assume time-based
+      const hasAnyTimeData = timeReads.some((read, idx) => 
+        idx < 3 && read?.result !== undefined && read?.result !== null && Number(read.result) > 0
+      );
+      if (hasAnyTimeData) {
+        isTimeBasedRef.current = true;
+        return true;
+      }
+    }
+    
     // If data is still loading (undefined), return false (will be set when data loads)
     // Only return false if we're certain it's block-based (all values are 0 and not loading)
-    if (launchTimestamp === undefined || phaseCount === undefined || phaseDuration === undefined) {
+    if (phaseCount === undefined && launchTimestamp === undefined && phaseDuration === undefined) {
       // Still loading, return false for now
       return false;
     }
     
     // Confirmed block-based (all values are 0 and we've never seen time-based data)
     return false;
-  }, [launchTimestamp, phaseCount, phaseDuration]);
+  }, [launchTimestamp, phaseCount, phaseDuration, timeReads, isTimeReadsLoading, timeReadsError]);
 
   // Calculate derived values
   const currentBlockNumber = blockNumber ? Number(blockNumber) : 0;
@@ -284,7 +402,7 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
 
   const totalTokensThisPhase = isTimeBased && phaseAllocationRaw !== null
     ? ethers.formatEther(phaseAllocationRaw)
-    : PHASES[currentPhase]?.amount || '0';
+    : PHASES[calculatedCurrentPhase]?.amount || '0';
 
   const minContributionEth = minContributionWei > 0n ? ethers.formatEther(minContributionWei) : undefined;
 
@@ -317,8 +435,8 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
     return sum + (contrib.result ? BigInt(contrib.result as bigint) : BigInt(0));
   }, BigInt(0)) || BigInt(0);
 
-  const currentPhaseContributions = phaseContributions?.[currentPhase]?.result
-    ? BigInt(phaseContributions[currentPhase].result as bigint)
+  const currentPhaseContributions = phaseContributions?.[calculatedCurrentPhase]?.result
+    ? BigInt(phaseContributions[calculatedCurrentPhase].result as bigint)
     : BigInt(0);
 
   // Fetch participant counts for current phase
@@ -326,9 +444,9 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
     address: contractAddress as `0x${string}`,
     abi: CONTRACT_ABI,
     functionName: 'getPhaseContributors',
-    args: [BigInt(currentPhase)],
+    args: [BigInt(calculatedCurrentPhase)],
     query: {
-      enabled: !!contractReads && !isContractLoading && currentPhase >= 0,
+      enabled: !!contractReads && !isContractLoading && calculatedCurrentPhase >= 0,
       refetchInterval: 10000, // Reduced from 4000 - less frequent to prevent flickering
       staleTime: 5000, // Increased from 2000 - data stays fresh longer
       retry: 2,
@@ -344,18 +462,20 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
   const participantsCount = Array.isArray(currentPhaseParticipants) ? currentPhaseParticipants.length : 0;
 
   // Global contributors data skipped to keep reads lightweight
-  const totalParticipantsData: PieData[] = [];
+  const totalParticipantsData = useMemo<PieData[]>(() => [], []);
 
   const isLoading = isContractLoading || isPhaseLoading || isAllContributorsLoading;
   const error = contractError;
-  const hasBasicData = !!contractReads && currentPhase >= 0;
+  const hasBasicData = !!contractReads && calculatedCurrentPhase >= 0;
   const hasPhaseData = !!phaseContributions;
   const hasGlobalData = !!allPhaseContributors && totalParticipantsData.length > 0;
   // If the contract is time-based (MMM_02), ignore errors from legacy-only reads like launchBlock
   const isValidated = !isLoading && hasBasicData && hasPhaseData && (!error || isTimeBased);
 
-  return {
-    currentPhase,
+  // Memoize the view model to avoid re-renders from new object identities
+  const model = useMemo<OptimizedContractData>(() => ({
+    currentPhase: calculatedCurrentPhase,
+    calculatedCurrentPhase, // Export calculated phase for consistency
     totalMinted: ethers.formatEther(totalSupply),
     totalContributions: ethers.formatEther(totalContributions),
     currentPhaseContributions: ethers.formatEther(currentPhaseContributions),
@@ -386,18 +506,193 @@ export function useOptimizedContractData(chainId: number): OptimizedContractData
     hasBasicData,
     hasPhaseData,
     hasGlobalData,
-  };
+  }), [
+    calculatedCurrentPhase,
+    totalSupply,
+    totalContributions,
+    currentPhaseContributions,
+    totalTokensThisPhase,
+    participantsCount,
+    totalParticipantsData,
+    isLaunchComplete,
+    currentBlockNumber,
+    launchBlock,
+    isTimeBased,
+    launchTimestamp,
+    phaseCount,
+    phaseDuration,
+    minContributionEth,
+    currentPhaseStartTs,
+    currentPhaseEndTs,
+    scheduleEndTs,
+    nextPhase,
+    nextPhaseStartTs,
+    nextPhaseEndTs,
+    nextPhaseAllocation,
+    tokenName,
+    tokenSymbol,
+    isLoading,
+    error,
+    isValidated,
+    hasBasicData,
+    hasPhaseData,
+    hasGlobalData,
+  ]);
+
+  return model;
 }
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
+// Hook for user-specific data
+export function useUserContractData(userAddress?: string, chainId?: number) {
+  const address = CONTRACT_ADDRESSES[chainId as keyof typeof CONTRACT_ADDRESSES];
 
-// Hook for user-specific data (stubbed; page implements its own optimized flow)
-export function useUserContractData(_userAddress?: string, _chainId?: number) {
+  // Early outs
+  const enabledUser = Boolean(address && userAddress);
+
+  // Discover phaseCount (time-based) to know how many phases to read
+  const { data: phaseCountRead } = useReadContract({
+    address: address as `0x${string}`,
+    abi: CONTRACT_ABI,
+    functionName: 'PHASE_COUNT',
+    query: {
+      enabled: enabledUser,
+      refetchInterval: 15000,
+      staleTime: 8000,
+    },
+  });
+
+  const phaseCount = phaseCountRead ? Number(phaseCountRead as bigint) : undefined;
+  const phaseCountForReads = phaseCount && phaseCount > 0 ? phaseCount : 0;
+
+  // Batch user contributions across all phases
+  const contributionCalls = useMemo(() => {
+    if (!enabledUser || phaseCountForReads === 0) return [];
+    return Array.from({ length: phaseCountForReads }, (_, i) => ({
+      address: address as `0x${string}`,
+      abi: CONTRACT_ABI,
+      functionName: 'contributions' as const,
+      args: [BigInt(i), userAddress as `0x${string}`],
+    }));
+  }, [enabledUser, address, userAddress, phaseCountForReads]);
+
+  const { data: userContribReads, isLoading: isUserContribLoading } = useReadContracts({
+    contracts: contributionCalls,
+    query: {
+      enabled: contributionCalls.length > 0,
+      refetchInterval: 12000,
+      staleTime: 8000,
+      placeholderData: keepPreviousData,
+    },
+  });
+
+  // Batch hasMinted across all phases
+  const hasMintedCalls = useMemo(() => {
+    if (!enabledUser || phaseCountForReads === 0) return [];
+    return Array.from({ length: phaseCountForReads }, (_, i) => ({
+      address: address as `0x${string}`,
+      abi: CONTRACT_ABI,
+      functionName: 'hasMinted' as const,
+      args: [BigInt(i), userAddress as `0x${string}`],
+    }));
+  }, [enabledUser, address, userAddress, phaseCountForReads]);
+
+  const { data: hasMintedReads, isLoading: isHasMintedLoading } = useReadContracts({
+    contracts: hasMintedCalls,
+    query: {
+      enabled: hasMintedCalls.length > 0,
+      refetchInterval: 12000,
+      staleTime: 8000,
+      placeholderData: keepPreviousData,
+    },
+  });
+
+  // Derive phases with user contribution and not minted
+  const phasesWithContrib = useMemo(() => {
+    if (!userContribReads || !hasMintedReads) return [] as number[];
+    const out: number[] = [];
+    for (let i = 0; i < userContribReads.length; i++) {
+      const contrib = (userContribReads[i]?.result as bigint) || 0n;
+      const minted = (hasMintedReads[i]?.result as boolean) || false;
+      if (contrib > 0n && !minted) out.push(i);
+    }
+    return out;
+  }, [userContribReads, hasMintedReads]);
+
+  // Batch eligible tokens only for contributed, unminted phases
+  const eligibleCalls = useMemo(() => {
+    if (!enabledUser || phasesWithContrib.length === 0) return [];
+    return phasesWithContrib.map((phase) => ({
+      address: address as `0x${string}`,
+      abi: CONTRACT_ABI,
+      functionName: 'getEligibleTokens' as const,
+      args: [BigInt(phase), userAddress as `0x${string}`],
+    }));
+  }, [enabledUser, address, userAddress, phasesWithContrib]);
+
+  const { data: eligibleReads, isLoading: isEligibleLoading } = useReadContracts({
+    contracts: eligibleCalls,
+    query: {
+      enabled: eligibleCalls.length > 0,
+      refetchInterval: 12000,
+      staleTime: 8000,
+      placeholderData: keepPreviousData,
+    },
+  });
+
+  // Process user model
+  const model = useMemo(() => {
+    if (!enabledUser || phaseCountForReads === 0) {
+      return {
+        phaseContributions: [] as string[],
+        totalUserContributions: '0',
+        mintablePhases: [] as number[],
+        mintedPhases: [] as number[],
+        phaseEligibleTokens: {} as Record<number, string>,
+        isLoading: false,
+        error: null as unknown,
+      };
+    }
+
+    const phaseContributions: string[] = Array(phaseCountForReads).fill('0');
+    const mintedPhases: number[] = [];
+    let totalUserContrib = 0n;
+
+    for (let i = 0; i < phaseCountForReads; i++) {
+      const contrib = (userContribReads?.[i]?.result as bigint) || 0n;
+      const minted = (hasMintedReads?.[i]?.result as boolean) || false;
+      phaseContributions[i] = ethers.formatEther(contrib);
+      if (contrib > 0n) totalUserContrib += contrib;
+      if (minted) mintedPhases.push(i);
+    }
+
+    const phaseEligibleTokens: Record<number, string> = {};
+    const mintablePhases: number[] = [];
+    if (eligibleReads && phasesWithContrib.length > 0) {
+      phasesWithContrib.forEach((phase, idx) => {
+        const val = (eligibleReads[idx]?.result as bigint) || 0n;
+        if (val > 0n) {
+          phaseEligibleTokens[phase] = ethers.formatEther(val);
+          mintablePhases.push(phase);
+        }
+      });
+    }
+
+    return {
+      phaseContributions,
+      totalUserContributions: ethers.formatEther(totalUserContrib),
+      mintablePhases,
+      mintedPhases,
+      phaseEligibleTokens,
+      isLoading: false,
+      error: null as unknown,
+    };
+  }, [enabledUser, phaseCountForReads, userContribReads, hasMintedReads, eligibleReads, phasesWithContrib]);
+
+  const isLoading = isUserContribLoading || isHasMintedLoading || isEligibleLoading;
+
   return {
-    userContributions: [] as string[],
-    mintablePhases: [] as number[],
-    isLoading: false,
-    error: null as unknown,
-    isValidated: true,
+    ...model,
+    isLoading,
+    isValidated: !isLoading,
   };
 }

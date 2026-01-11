@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title MrManMan Unified (Token + Staking)
@@ -91,7 +91,8 @@ contract MrManManUnified is ERC20, Ownable, ReentrancyGuard {
     mapping(uint256 => uint256) private _customAllocOf;
     mapping(uint256 => bool) private _isCustomPhase;
     mapping(uint256 => uint256) private _phaseDurationOf; // Custom duration per phase
-    mapping(uint256 => uint256) private _randomRewardOf; // Random rewards for specific phases
+    mapping(uint256 => uint256) private _randomRewardOf; // Random rewards for specific phases (max value, or actual if set)
+    mapping(uint256 => bool) private _randomRewardSet; // Track if random reward has been generated
     uint256 private _totalCustomAlloc;
     
     // Baseline distribution
@@ -187,6 +188,7 @@ contract MrManManUnified is ERC20, Ownable, ReentrancyGuard {
                 uint256 a = customAllocs_[i][1];
                 require(p < PHASE_COUNT, "phase idx");
                 require(!_isCustomPhase[p], "dup phase");
+                require(a > 0, "zero alloc");
                 _isCustomPhase[p] = true;
                 _customAllocOf[p] = a;
                 _totalCustomAlloc += a;
@@ -350,15 +352,42 @@ contract MrManManUnified is ERC20, Ownable, ReentrancyGuard {
         emit TokensMinted(msg.sender, phase, userShare);
     }
     
-    function _getPhaseAllocationActual(uint256 phase) internal view returns (uint256) {
+    function _getPhaseAllocationActualView(uint256 phase) internal view returns (uint256) {
         if (_isCustomPhase[phase]) {
             return _customAllocOf[phase];
         }
         
-        // For random phases, use stored value (set at phase end)
+        // For random phases, return stored value (may be max or actual)
         if (_randomRewardOf[phase] > 0) {
-            // If phase ended, use the actual random reward
-            // Otherwise return max for estimation
+            return _randomRewardOf[phase];
+        }
+        
+        return phaseAllocation(phase);
+    }
+    
+    function _getPhaseAllocationActual(uint256 phase) internal returns (uint256) {
+        if (_isCustomPhase[phase]) {
+            return _customAllocOf[phase];
+        }
+        
+        // For random phases, generate random value on first access after phase ends
+        if (_randomRewardOf[phase] > 0) {
+            if (!_randomRewardSet[phase] && _phaseEnded(phase)) {
+                // Generate pseudo-random value using block properties
+                // Note: This is not cryptographically secure, but sufficient for game mechanics
+                uint256 maxReward = _randomRewardOf[phase];
+                uint256 seed = uint256(keccak256(abi.encodePacked(
+                    phase,
+                    phaseEndTs(phase),
+                    blockhash(block.number - 1),
+                    block.timestamp
+                )));
+                uint256 randomValue = seed % (maxReward + 1); // 0 to maxReward inclusive
+                _randomRewardOf[phase] = randomValue;
+                _randomRewardSet[phase] = true;
+                return randomValue;
+            }
+            // If already set or phase not ended, return stored value
             return _randomRewardOf[phase];
         }
         
@@ -372,7 +401,7 @@ contract MrManManUnified is ERC20, Ownable, ReentrancyGuard {
         if (userContribution == 0) return 0;
         uint256 phaseTotal = totalContributions[phase];
         if (phaseTotal == 0) return 0;
-        uint256 allocation = _getPhaseAllocationActual(phase);
+        uint256 allocation = _getPhaseAllocationActualView(phase);
         return Math.mulDiv(userContribution, allocation, phaseTotal);
     }
     

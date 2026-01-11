@@ -128,7 +128,12 @@ export default function PhaseProgress({
         <div className="space-y-4">
           <div>
             <p className="text-sm text-gray-300">
-              {isTimeBased && launchTimestamp && scheduleEndTs && phaseCount
+              {/* Show phase-based format if:
+                  - phaseCount > 10 (not legacy 10-phase contract), OR
+                  - isTimeBased is true, OR  
+                  - phaseCount exists and is not 10 (fallback for new contracts)
+              */}
+              {(phaseCount && phaseCount > 0 && (phaseCount > 10 || isTimeBased))
                 ? <>Total Progress: {Math.round(totalProgress)}% (Phase {currentPhase} / {phaseCount})</>
                 : <>Total Progress: {Math.round(totalProgress)}% ({blocksSinceLaunch} / {totalBlocks} blocks)</>
               }
